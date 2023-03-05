@@ -2,11 +2,10 @@ from gurobipy import Model, quicksum, GRB
 import pandas as pd
 import math
 
-from load_data import load_instance, load_forecast
+from helper_functions import load_instance, load_forecast
 
 
 # TODO
-# Remove symmetry of buildings (Can add another opt problem for assigning activities to buildings if desired)
 # Add batteries
 # Remove edge case of one-off activities ending outside of business hours not incurring a penalty
 # Add quadratic term in objective
@@ -19,7 +18,7 @@ D_r = range(5)
 D_o = range(30)
 
 # Load in data instance
-B_n_small, B_n_large, prec, dur, p, r_small, r_large, value, penalty, A_r, A_o, A, B = load_instance(instance_size, instance_index)
+n_small, n_large, prec, dur, p, r_small, r_large, value, penalty, A_r, A_o, A, B = load_instance(instance_size, instance_index)
 
 # Load in the forecast
 base_load, solar_supply, price = load_forecast()
@@ -60,34 +59,55 @@ while Day < 30:
 
     Day += 1
 
+def T_2_To(T):
+    if isinstance(T,int):
+        d = T//96
+        t = T - d*96
+        return (d,t)
+    if isinstance(T,list):
+        return [(t//96,t - 96*(t//96)) for t in T]
+
+def T_2_Tr(T):
+    if isinstance(T,int):
+        for d in D_r:
+            if T in Weekday_business_hours[d]:
+                return (d, T % (4*24) - (9*4))
+        return None
+    elif isinstance(T,list):
+        dt = []
+        for t in T:
+            for d in D_r:
+                if t in Weekday_business_hours[d]:
+                    dt.append((d, T % (4*24) - (9*4)))
+                else:
+                    dt.append(None)
+    else:
+        return None
+
 
 m = Model()
 
 # Barrier method runs into memory issues quickly (the default option of running different algorithms concurrently
 # is killed instantly by the OS)
-m.Params.Method = 1
+# m.Params.Method = 1
 
-X_r = {(a,b,d,t): m.addVar(vtype=GRB.BINARY)
+X_r = {(a,d,t): m.addVar(vtype=GRB.BINARY)
        for a in A_r
-       for b in B
        for d in D_r
        for t in T_r}
 
-Y_r = {(a,b,d,t): m.addVar(vtype=GRB.BINARY)
+Y_r = {(a,d,t): m.addVar(vtype=GRB.BINARY)
        for a in A_r
-       for b in B
        for d in D_r
        for t in T_start[a]}
 
-X_o = {(a,b,d,t): m.addVar(vtype=GRB.BINARY)
+X_o = {(a,d,t): m.addVar(vtype=GRB.BINARY)
        for a in A_o
-       for b in B
        for d in D_o
        for t in T_o}
 
-Y_o = {(a,b,d,t): m.addVar(vtype=GRB.BINARY)
+Y_o = {(a,d,t): m.addVar(vtype=GRB.BINARY)
        for a in A_o
-       for b in B
        for d in D_o
        for t in T_start[a]}
 
@@ -97,109 +117,72 @@ grid_power = {t: m.addVar(vtype=GRB.CONTINUOUS)
 class_demand = {t: m.addVar(vtype=GRB.CONTINUOUS)
                 for t in T}
 
-def T_2_To(T):
-    if isinstance(T,int):
-        d = T//96
-        t = T - d*96
-        return (d,t)
-    if isinstance(T,list):
-        return [(t//96,t - 96*(t//96)) for t in T]
-
-# def T_2_Tr(T):
-#     if isinstance(T,int):
-#         for d in range(D_r):
-#             if T in Weekday_business_hours[d]:
-
-oneoff_activity_payments = quicksum(quicksum(value[a]*Y_o[a,b,d,t] for b in B for (d,t) in T_2_To(T_bus))
-                                    + quicksum((value[a]-penalty[a])*Y_o[a,b,d,t] for b in B for (d,t) in T_2_To(T_off) if t in T_start[a])
+oneoff_activity_payments = quicksum(quicksum(value[a]*Y_o[a,d,t] for (d,t) in T_2_To(T_bus))
+                                    + quicksum((value[a]-penalty[a])*Y_o[a,d,t] for (d,t) in T_2_To(T_off) if t in T_start[a])
                                     for a in A_o)
 
 grid_power_cost = (0.25/1000)*quicksum(grid_power[t]*price[t] for t in T)
 
 m.setObjective(grid_power_cost-oneoff_activity_payments)
 
-# m.setObjective(quicksum(quicksum(value[a]*Y_o[a,b,d,t] for b in B for (d,t) in T_2_To(T_bus))
-#                                     + quicksum((value[a]-penalty[a])*Y_o[a,b,d,t] for b in B for (d,t) in T_2_To(T_off) if t in T_start[a])
-#                                     for a in A_o),GRB.MAXIMIZE)
 
 # Run each recurring activity once per week
-recurring_once_per_week = {a: m.addConstr(quicksum(X_r[a,b,d,t] for b in B for d in D_r for t in T_r) == dur[a])
+recurring_once_per_week = {a: m.addConstr(quicksum(X_r[a,d,t]for d in D_r for t in T_r) == dur[a])
                            for a in A_r}
-recurring_once_per_week_1 = {a: m.addConstr(quicksum(Y_r[a,b,d,t] for b in B for d in D_r for t in T_start[a]) == 1)
+recurring_once_per_week_1 = {a: m.addConstr(quicksum(Y_r[a,d,t] for d in D_r for t in T_start[a]) == 1)
                            for a in A_r}
 
 # Run each one-off activity at most once
-oneoff_once_per_week = {a: m.addConstr(quicksum(X_o[a,b,d,t] for b in B for d in D_o for t in T_o) <= dur[a])
+oneoff_once_per_week = {a: m.addConstr(quicksum(X_o[a,d,t]for d in D_o for t in T_o) <= dur[a])
                         for a in A_o}
-oneoff_once_per_week_1 = {a: m.addConstr(quicksum(Y_o[a,b,d,t] for b in B for d in D_o for t in T_start[a]) <= 1)
+oneoff_once_per_week_1 = {a: m.addConstr(quicksum(Y_o[a,d,t] for d in D_o for t in T_start[a]) <= 1)
                            for a in A_o}
 
 # Link x and y variables
-recurring_activity_run_after_start = {(a,b,d,t): m.addConstr(quicksum(X_r[a,b,d,tt] for tt in range(t,t+dur[a])) >= dur[a]*Y_r[a,b,d,t])
-                                      for (a,b,d,t) in Y_r}
-oneoff_activity_run_after_start = {(a,b,d,t): m.addConstr(quicksum(X_o[a,b,d,tt] for tt in range(t,t+dur[a])) >= dur[a]*Y_o[a,b,d,t])
-                                   for (a,b,d,t) in Y_o}
+recurring_activity_run_after_start = {(a,d,t): m.addConstr(quicksum(X_r[a,d,tt] for tt in range(t,t+dur[a])) >= dur[a]*Y_r[a,d,t])
+                                      for (a,d,t) in Y_r}
+oneoff_activity_run_after_start = {(a,d,t): m.addConstr(quicksum(X_o[a,d,tt] for tt in range(t,t+dur[a])) >= dur[a]*Y_o[a,d,t])
+                                   for (a,d,t) in Y_o}
 
-# Convert this to a T_2_Tr function which works on int and list inputs
-def foo(t):
-    for d in range(5):
-        if t in Weekday_business_hours[d]:
-            return (d,t%(24*4) - 9*4)
-    return None
+# Calculate power demand for classes
+# Should find a better way to construct this, might be better to just do it in a loop
+# calc_class_power_demand = {t: m.addConstr((0 if (tr := T_2_Tr(t)) is None else quicksum(p[a]*(r_small[a]+r_large[a])*X_r[(a,) + tr] for a in A_r)) +
+#                                           quicksum(p[a]*(r_small[a]+r_large[a])*X_o[(a,) + T_2_To(t)] for a in A_o) == class_demand[t])
+#                            for t in T}
 
-# Construct the class demands
+# Calculate power demand and number of rooms used by all running classes at each timestep
 for t in T:
-    # Get the power demand for one-off classes
-    d = t//96
-    tt = t - d*96
-    total_demand = quicksum(X_o[a,b,d,tt]*p[a]*(r_small[a]+r_large[a]) for a in A_o for b in B)
+    d,tt = T_2_To(t)
 
-    # Get the power demand for recurring classes in this time period
-    foobar = foo(t)
-    if foobar is not None:
-        d,tt = foobar
-        total_demand += quicksum(X_r[a,b,d,tt]*p[a]*(r_small[a]+r_large[a]) for a in A_r for b in B)
+    demand_at_t = quicksum(p[a]*(r_small[a]+r_large[a])*X_o[a,d,tt] for a in A_o)
+    small_rooms_used = quicksum(X_o[a,d,tt]*r_small[a] for a in A_o)
+    large_rooms_used = quicksum(X_o[a,d,tt]*r_large[a] for a in A_o)
 
-    m.addConstr(class_demand[t] == total_demand)
+    recurring_time = T_2_Tr(t)
 
-# Assume for now that some building always has enough rooms to run a class
-added = 5
-for b in B:
-    for t in T:
-        # Convert the time period to day,time for indexing
-        d = t//96
-        tt = t - d*96
+    if recurring_time is not None:
+        d,tt = recurring_time
+        demand_at_t += quicksum(p[a] * (r_small[a] + r_large[a]) * X_r[a, d, tt] for a in A_r)
+        small_rooms_used += quicksum(X_r[a, d, tt] * r_small[a] for a in A_r)
+        large_rooms_used += quicksum(X_r[a, d, tt] * r_large[a] for a in A_r)
 
-        # Check number of rooms used in this time period by one-off activities
-        small_rooms_used = quicksum(X_o[a,b,d,tt]*r_small[a] for a in A_o if a in r_small)
-        large_rooms_used = quicksum(X_o[a, b, d, tt] * r_large[a] for a in A_o if a in r_large)
-
-        foobar = foo(t)
-        if foobar is not None:
-            d,tt = foobar
-
-            small_rooms_used += quicksum(X_r[a,b,d,tt]*r_small[a] for a in A_r if a in r_small)
-            large_rooms_used += quicksum(X_r[a,b,d,tt]*r_large[a] for a in A_r if a in r_large)
-            # m.addConstr(quicksum(X_r[a,b,d,tt]*r_small[a] for a in A_r if a in r_small) <= B_n_small[b] + added)
-            # m.addConstr(quicksum(X_r[a,b,d,tt]*r_large[a] for a in A_r if a in r_large) <= B_n_large[b] + added)
-
-        m.addConstr(small_rooms_used <= sum(B_n_small))
-        m.addConstr(large_rooms_used <= sum(B_n_large))
+    m.addConstr(demand_at_t == class_demand[t])
+    m.addConstr(small_rooms_used <= n_small)
+    m.addConstr(large_rooms_used <= n_large)
 
 # Precedence constraints
-recur_precedence = {(a,d): m.addConstr(len(prec[a]) * quicksum(Y_r[a,b,d,t] for b in B for t in T_start[a]) <=
-                                       quicksum(Y_r[aa,b,dd,t] for aa in prec[a] for b in B for dd in range(d) for t in T_start[aa]))
+recur_precedence = {(a,d): m.addConstr(len(prec[a]) * quicksum(Y_r[a,d,t] for t in T_start[a]) <=
+                                       quicksum(Y_r[aa,dd,t] for aa in prec[a] for dd in range(d) for t in T_start[aa]))
                     for a in A_r
                     for d in D_r}
 
-oneoff_precedence = {(a,d): m.addConstr(len(prec[a]) * quicksum(Y_o[a,b,d,t] for b in B for t in T_start[a]) <=
-                                       quicksum(Y_o[aa,b,dd,t] for aa in prec[a] for b in B for dd in range(d) for t in T_start[aa]))
+oneoff_precedence = {(a,d): m.addConstr(len(prec[a]) * quicksum(Y_o[a,d,t] for t in T_start[a]) <=
+                                       quicksum(Y_o[aa,dd,t] for aa in prec[a] for dd in range(d) for t in T_start[aa]))
                     for a in A_o
                     for d in D_o}
 
 # Link grid power to other power supplies/demands
-equate_power = {t: m.addConstr(grid_power[t] + sum(solar_supply[b][t] for b in B) ==
-                               sum(base_load[b][t] for b in B) + class_demand[t])
+equate_power = {t: m.addConstr(grid_power[t] + solar_supply[t] == base_load[t] + class_demand[t])
                 for t in T}
 
 m.optimize()
