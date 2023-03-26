@@ -2,23 +2,27 @@ from gurobipy import Model, quicksum, GRB
 import pandas as pd
 import math
 
-from helper_functions import load_instance, load_forecast
+from helper_functions import load_instance, load_forecast, save_solution
 
 
 # TODO
 # Add batteries
 # Remove edge case of one-off activities ending outside of business hours not incurring a penalty
 # Add quadratic term in objective
-# Look at better solutions (optimize over full schedules)
 
-instance_size = 'small'
-instance_index = 0
+# Threads only applies for large instances
+opt_params = {'name': 'Vanilla',
+              'instance size': 'large',
+              'instance index': 2,
+              'threads': 2,
+              'MIPGap': 0,
+              'TimeLimit': 600}
 
 D_r = range(5)
 D_o = range(30)
 
 # Load in data instance
-n_small, n_large, prec, dur, p, r_small, r_large, value, penalty, A_r, A_o, A, B = load_instance(instance_size, instance_index)
+n_small, n_large, prec, dur, p, r_small, r_large, value, penalty, A_r, A_o, A, B = load_instance(opt_params['instance size'], opt_params['instance index'])
 
 # Load in the forecast
 base_load, solar_supply, price = load_forecast()
@@ -86,6 +90,12 @@ def T_2_Tr(T):
 
 
 m = Model()
+
+m.Params.MIPGap = opt_params['MIPGap']
+m.Params.TimeLimit = opt_params['TimeLimit']
+
+if opt_params['instance size'] == 'large':
+    m.Params.Threads = opt_params['threads']
 
 # Barrier method runs into memory issues quickly (the default option of running different algorithms concurrently
 # is killed instantly by the OS)
@@ -187,6 +197,8 @@ equate_power = {t: m.addConstr(grid_power[t] + solar_supply[t] == base_load[t] +
 
 m.optimize()
 
+save_solution(m, opt_params)
+
 week_index_to_day = {0: 'Monday',
                      1: 'Tuesday',
                      2: 'Wednesday',
@@ -205,44 +217,44 @@ def To_2_Time(t):
 
     return f'{math.floor(t/4)}:{t%4*15}' + ('0' if t%4*15 == 0 else '')
 
-for b in B:
-    print(f'\n--------------- Building {b} Schedule ---------------')
-    for d in D_r:
-        printout = f'{week_index_to_day[d]}:'
-        for a in A_r:
-            for t in T_r_start[a]:
-                if Y_r[a,b,d,t].X == 1:
-                    printout += f' a{a} ({dur[a]},{sum(int(X_r[a,b,d,tt].X) for tt in range(t,t+dur[a]))},{f"S{r_small[a]}" if a in r_small else f"L{r_large[a]}"}) ' \
-                                f'{Tr_2_Time(t)}-{Tr_2_Time(t+dur[a])} |'
-        print(printout[:-1])
-
 # for b in B:
-#     print(f'\n--------------- Building {b} Small Capacity = {B_n_small[b]} ---------------')
+#     print(f'\n--------------- Building {b} Schedule ---------------')
 #     for d in D_r:
 #         printout = f'{week_index_to_day[d]}:'
-#         for t in T_r:
-#             printout += f' {sum(int(X_r[a,b,d,t].X) * r_small[a] for a in A_r if a in r_small)}'
-#         print(printout)
+#         for a in A_r:
+#             for t in T_r_start[a]:
+#                 if Y_r[a,b,d,t].X == 1:
+#                     printout += f' a{a} ({dur[a]},{sum(int(X_r[a,b,d,tt].X) for tt in range(t,t+dur[a]))},{f"S{r_small[a]}" if a in r_small else f"L{r_large[a]}"}) ' \
+#                                 f'{Tr_2_Time(t)}-{Tr_2_Time(t+dur[a])} |'
+#         print(printout[:-1])
 #
-# for b in B:
-#     print(f'\n--------------- Building {b} Large Capacity = {B_n_large[b]} ---------------')
-#     for d in D_r:
-#         printout = f'{week_index_to_day[d]}:'
-#         for t in T_r:
-#             printout += f' {sum(int(X_r[a,b,d,t].X) * r_large[a] for a in A_r if a in r_large)}'
-#         print(printout)
-
-# Have a look at when the once-off activites are scheduled
-
-print('\n--------------- One-Off Activity Schedules ---------------')
-for a in A_o:
-    printout = f'a{a}: '
-    for d in D_o:
-        for t in T_start[a]:
-            for b in B:
-                if Y_o[a,b,d,t].X > 0.9:
-                    printout += f'Day {d} {To_2_Time(t)}-{To_2_Time(t+dur[a])}'
-
-    print(printout)
-
-print(5)
+# # for b in B:
+# #     print(f'\n--------------- Building {b} Small Capacity = {B_n_small[b]} ---------------')
+# #     for d in D_r:
+# #         printout = f'{week_index_to_day[d]}:'
+# #         for t in T_r:
+# #             printout += f' {sum(int(X_r[a,b,d,t].X) * r_small[a] for a in A_r if a in r_small)}'
+# #         print(printout)
+# #
+# # for b in B:
+# #     print(f'\n--------------- Building {b} Large Capacity = {B_n_large[b]} ---------------')
+# #     for d in D_r:
+# #         printout = f'{week_index_to_day[d]}:'
+# #         for t in T_r:
+# #             printout += f' {sum(int(X_r[a,b,d,t].X) * r_large[a] for a in A_r if a in r_large)}'
+# #         print(printout)
+#
+# # Have a look at when the once-off activites are scheduled
+#
+# print('\n--------------- One-Off Activity Schedules ---------------')
+# for a in A_o:
+#     printout = f'a{a}: '
+#     for d in D_o:
+#         for t in T_start[a]:
+#             for b in B:
+#                 if Y_o[a,b,d,t].X > 0.9:
+#                     printout += f'Day {d} {To_2_Time(t)}-{To_2_Time(t+dur[a])}'
+#
+#     print(printout)
+#
+# print(5)

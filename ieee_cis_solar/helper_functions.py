@@ -163,11 +163,20 @@ def save_solution(model,opt_params):
     if not os.path.exists(results_directory):
         os.mkdir(results_directory)
 
+    status_dict = defaultdict(lambda x: '???')
+    status_dict[2] = 'Optimal Solution Found'
+    status_dict[3] = 'Infeasible'
+    status_dict[9] = 'Time Limit Reached'
+
     # Store the date and time the solution was generated
     with open(os.path.join(results_directory,'Info.txt'),'w') as f:
         f.write(datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
         f.write(f'\nObjective - ${model.objVal:.2f}\n')
         f.write(f'Solve Time - {model.runTime:.2f}s\n')
+        f.write(f'Status - {model.Status} ({status_dict[model.Status]})\n')
+        f.write(f'NumVars - {model.NumVars}\n')
+        f.write(f'NumConstrs - {model.NumConstrs}\n')
+        f.write(f'MIPGap - {100*model.MIPGap:.3f}%\n')
 
     # Store the optimisation parameters used
     with open(os.path.join(results_directory,'opt_params.pickle'),'wb') as f:

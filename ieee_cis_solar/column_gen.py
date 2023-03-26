@@ -10,11 +10,10 @@ from helper_functions import load_instance, load_forecast, generate_columns, sav
 
 # Threads only applies for large instances
 opt_params = {'name': 'Column Generation',
-              'instance size': 'large',
-              'instance index': 4,
+              'instance size': 'small',
+              'instance index': 0,
               'threads': 1,
               'MIPGap': 0}
-
 
 D_r = range(5)
 D_o = range(30)
@@ -37,8 +36,6 @@ T_start = T_r_start + T_o_start
 # Split it up into T_bus (business hours) and T_off (out of hours)
 T = range(2880)
 T_bus, T_off = [], []
-
-t = 0
 
 Day = 0         # Take Saturday to be the first day of the week
 
@@ -134,7 +131,7 @@ for t in T:
         d, tt = recurring_time
         small_rooms_used += quicksum(X[a, k] * r_small[a] for (a, k) in active_recurring_schedules[d, tt])
         large_rooms_used += quicksum(X[a, k] * r_large[a] for (a, k) in active_recurring_schedules[d, tt])
-        power_used = quicksum(X[a, k] * p[a] * (r_small[a] + r_large[a]) for (a, k) in active_recurring_schedules[d, tt])
+        power_used += quicksum(X[a, k] * p[a] * (r_small[a] + r_large[a]) for (a, k) in active_recurring_schedules[d, tt])
 
     m.addConstr(small_rooms_used <= n_small)
     m.addConstr(large_rooms_used <= n_large)

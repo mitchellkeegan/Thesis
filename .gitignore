@@ -1,5 +1,7 @@
 .idea/
 
+**/solution.sol
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -129,3 +131,5 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+/ieee_cis_solar/Results/
+/Meeting Notes/
