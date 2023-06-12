@@ -3,8 +3,17 @@ Thesis Project
 
 ieee CIS Solar TODO:
 Add in batteries (maybe)
-Add quadratic term into objective (maybe)
-Refactor code (maybe create an algorithm class)
-Test with other forecast
 Heurisic starting solutions?
-Fix timezone offsets on data (schedules in AEDT, prices in AEST, forecasts in UTC)
+Refactor into base classes used for Knapsack problem
+Generate instance data
+
+Knapsack TODO:
+
+General TODO:
+Begin testing instance solving on Bunya
+Refactor classes?
+
+ML TODO:
+Implement lightGBM
+Add input normalisation for NN models
+Generalise ANN architecture (in terms of activation functions, num layers and layer size)

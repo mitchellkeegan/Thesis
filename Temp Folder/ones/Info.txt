@@ -1,0 +1,5 @@
+ML PARAMS:
+lr: 0.001
+Epochs: 1000
+Training Batch Size: 256
+Constraints: ones

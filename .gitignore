@@ -1,6 +1,12 @@
 .idea/
 
+Meeting Notes/
+HPC Data Storage Diagram.png
+Report Graphics/
 **/solution.sol
+gradient_testing.py
+0-1_Knapsack/Results for Paper/*
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

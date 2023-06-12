@@ -1,0 +1,13 @@
+EVAULATED on TEST DATA
+
+----------
+Shared Weights (Percentage): MEAN - 89.16 | MIN - 71.88 | MAX - 100.00
+----------
+----------
+2/200 Inequality Constraints Violated (1.00%)
+Constraint Violation Statistics:  MEAN - 1.65 | MIN - 0.55 | MAX - 2.75
+----------
+Objective Statistics (%): UNDER OPTIMALITY - 98.0 | OPTIMAL - 1.5 | OVER OPTIMALITY - 0.5
+Over Objective Statistics (%): MIN - 0.78 | MEAN - 0.78 | MAX - 0.78
+Under Objective Statistics (%): MIN - 0.39 | MEAN - 5.57 | MAX - 18.70
+----------
