@@ -1,7 +1,7 @@
-26/03/2023 16:50:28
-Objective - $16682.49
-Solve Time - 4095.82s
+28/03/2023 18:13:37
+Objective - $16457.92
+Solve Time - 376.24s
 Status - 2 (Optimal Solution Found)
-NumVars - 67610
-NumConstrs - 12440
+NumVars - 84890
+NumConstrs - 29720
 MIPGap - 0.000%

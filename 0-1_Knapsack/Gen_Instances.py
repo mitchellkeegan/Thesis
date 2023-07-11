@@ -1,9 +1,11 @@
+#!/home/mitch/anaconda3/envs/Thesis/bin/python
+
 import os
 import random
 import pickle
 
 n = 50
-n_instances = 100000
+n_instances = 1000
 
 v_min = 1
 v_max = 200

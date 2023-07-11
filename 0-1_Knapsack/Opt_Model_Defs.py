@@ -2,8 +2,8 @@ import numpy as np
 from gurobipy import quicksum, GRB
 import os
 from math import floor
-from lib.custom_metrics import Approximation_Ratio
 
+from lib.custom_metrics import Approximation_Ratio
 from lib.base_classes import base_opt_model
 
 class vanilla_IP(base_opt_model):

@@ -6,6 +6,7 @@ import pandas as pd
 from collections import defaultdict
 from abc import ABC, abstractmethod
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 class base_model(ABC):
     def __init__(self,opt_params):
@@ -16,9 +17,17 @@ class base_model(ABC):
         self.opt_params = opt_params
 
         self.model = Model()
-        self.model.Params.MIPGap = opt_params['MIPGap']
+        if 'MIPGap' in opt_params:
+            self.model.Params.MIPGap = opt_params['MIPGap']
+        if 'TimeLimit' in opt_params:
+            self.model.Params.TimeLimit = opt_params['TimeLimit']
         if opt_params['instance size'] == 'large':
             self.model.Params.Threads = opt_params['threads']
+
+
+        self.results_directory = f'Results/{self.model_type} {opt_params["instance size"]} - {opt_params["instance index"]}'
+        if not os.path.exists(self.results_directory):
+            os.mkdir(self.results_directory)
     
     def optimize_model(self):
         self.model.optimize()
@@ -122,6 +131,19 @@ class base_model(ABC):
         base_load = forecasts[[col for col in forecasts.columns if col[:len('Building')] == 'Building']].sum(axis=1).to_list()
         solar_supply = forecasts[[col for col in forecasts.columns if col[:len('Solar')] == 'Solar']].sum(axis=1).to_list()
 
+        # Forecasts are provided in UTC, shift into AEDT and fill in earlier hours
+        base_load = base_load[:-11*4]
+        solar_supply = solar_supply[:-11*4]
+
+        solar_supply = solar_supply[13*4:24*4] + solar_supply
+        base_load = base_load[13*4:24*4] + base_load
+
+        # T = self.time_sets['T']
+        #
+        # plt.figure()
+        # plt.plot(T,solar_supply,T,base_load)
+        # plt.show()
+
         # Load in pricing data
         price_csv = 'PRICE_AND_DEMAND_202011_VIC1.csv'
 
@@ -149,6 +171,9 @@ class base_model(ABC):
         r_large = defaultdict(lambda: 0)
         value = {}
         penalty = {}
+        m = []
+        cap = []
+        eff = []
 
         if size is None:
             size = self.opt_params['instance size']
@@ -164,7 +189,6 @@ class base_model(ABC):
                     A_o = range(num_r, num_r + num_o)
                     A = range(num_r + num_o)
 
-                    B = range(int(line[2]))
 
                 elif line[0] == 'b':
                     n_small += int(line[2])
@@ -172,7 +196,9 @@ class base_model(ABC):
                 elif line[0] == 's':
                     continue
                 elif line[0] == 'c':
-                    continue
+                    cap.append(int(line[3]))
+                    m.append(int(line[4]))
+                    eff.append(float(line[5]))
                 elif line[0] == 'r':
                     id = int(line[1])
                     if line[3] == 'S':
@@ -222,7 +248,10 @@ class base_model(ABC):
                               'A_r': A_r,
                               'A_o': A_o,
                               'A': A,
-                              'B': B}
+                              'cap': cap,
+                              'm': m,
+                              'eff': eff,
+                              'B': range(len(eff))}
 
     def setup_and_optimize(self):
         self.load_instance(self.opt_params['instance size'], self.opt_params['instance index'])
@@ -239,25 +268,24 @@ class base_model(ABC):
         dur = self.instance_data['dur']
         A_r = self.instance_data['A_r']
         A_o = self.instance_data['A_o']
+        B = self.instance_data['B']
         # T_2_To = self.time_sets['T_2_To']
 
         instance_size = self.opt_params['instance size']
         instance_index = self.opt_params['instance index']
         model_type = self.model_type
 
-        results_directory = f'Results/{model_type} {instance_size} - {instance_index}'
-        if not os.path.exists(results_directory):
-            os.mkdir(results_directory)
 
-        activity_start_times, grid_power = self.vars_to_readable()
 
         def Tro_2_Time(t):
             return f'{math.floor(t / 4)}:{t % 4 * 15}' + ('0' if t % 4 * 15 == 0 else '')
 
-        with open(os.path.join(results_directory,'Schedule.txt'),'w') as f:
+        activity_start_times, grid_power, class_demand, battery_storage, battery_charge, battery_discharge = self.vars_to_readable()
+
+        with open(os.path.join(self.results_directory,'Schedule.txt'),'w') as f:
             for a, (d,t) in activity_start_times.items():
                 f.write(f'({"r" if a in A_r else "o"}) a{a}: Day {d+1} {Tro_2_Time(t)}-{Tro_2_Time(t + dur[a])}\n')
-        with open(os.path.join(results_directory,'Grid Power.txt'),'w') as f:
+        with open(os.path.join(self.results_directory,'Grid Power.txt'),'w') as f:
             for d, grid_power_day in enumerate(grid_power):
                 line = f'Day {d+1}: '
                 for t, power in enumerate(grid_power_day):
@@ -268,12 +296,26 @@ class base_model(ABC):
                         else:
                             line += '|'
                 f.write(line + '\n')
+        for b in B:
+            with open(os.path.join(self.results_directory, f'Battery {b} Storage.txt'), 'w') as f:
+                for d, battery_storage_day in enumerate(battery_storage[b]):
+                    f.write(f'Day {d + 1}: ')
+                    for storage in battery_storage_day:
+                        f.write(f'{storage:.2f} ')
+                    f.write('\n')
+
+        with open(os.path.join(self.results_directory, f'Class Demand.txt'), 'w') as f:
+            for d, class_demand_day in enumerate(class_demand):
+                f.write(f'Day {d+1}: ')
+                for cd in class_demand_day:
+                    f.write(f'{cd:.2f} ')
+                f.write('\n')
 
         # Store the solution such that it can be loaded back into a Gurobi model
-        self.model.write(os.path.join(results_directory, 'solution.sol'))
+        self.model.write(os.path.join(self.results_directory, 'solution.sol'))
 
         # Store the optimisation parameters used
-        with open(os.path.join(results_directory, 'opt_params.pickle'), 'wb') as f:
+        with open(os.path.join(self.results_directory, 'opt_params.pickle'), 'wb') as f:
             pickle.dump(self.opt_params, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         status_dict = defaultdict(lambda x: '???')
@@ -282,7 +324,7 @@ class base_model(ABC):
         status_dict[9] = 'Time Limit Reached'
 
         # Store the date and time the solution was generated
-        with open(os.path.join(results_directory, 'Info.txt'), 'w') as f:
+        with open(os.path.join(self.results_directory, 'Info.txt'), 'w') as f:
             f.write(datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
             f.write(f'\nObjective - ${self.model.objVal:.2f}\n')
             f.write(f'Solve Time - {self.model.runTime:.2f}s\n')
@@ -291,6 +333,47 @@ class base_model(ABC):
             f.write(f'NumConstrs - {self.model.NumConstrs}\n')
             f.write(f'MIPGap - {100 * self.model.MIPGap:.3f}%\n')
 
+
+    def plot_results(self):
+
+        B = self.instance_data['B']
+        T = self.time_sets['T']
+        base_load = self.forecasts['base_load']
+        solar_supply = self.forecasts['solar_supply']
+        price = self.forecasts['price']
+
+        _, grid_power, class_demand, battery_storage, battery_charge, battery_discharge = self.vars_to_readable()
+
+
+        grid_power = [x for x_day in grid_power for x in x_day]
+        class_demand = [x for x_day in class_demand for x in x_day]
+        battery_storage = [b0 + b1 for batt0_day, batt1_day in zip(battery_storage[0],battery_storage[1]) for b0,b1 in zip(batt0_day, batt1_day)]
+        battery_charge = [b0 + b1 for batt0_day, batt1_day in zip(battery_charge[0], battery_charge[1]) for b0, b1 in zip(batt0_day, batt1_day)]
+        battery_discharge = [b0 + b1 for batt0_day, batt1_day in zip(battery_discharge[0], battery_discharge[1]) for b0, b1 in zip(batt0_day, batt1_day)]
+
+
+        fig = plt.figure()
+        ax1 = fig.add_subplot(2,1,1)
+
+        ax1.plot(T, grid_power)
+        ax1.plot(T, class_demand)
+        ax1.plot(T,base_load)
+        ax1.plot(T,solar_supply)
+        ax1.legend(['Grid Power', 'Class Power Demand', 'Base Load', 'Solar Supply'])
+        ax1.set_xticks([4*24*d for d in self.D_o],[d for d in self.D_o])
+
+        ax_price = ax1.twinx()
+        ax_price.plot(T,price,'--')
+
+        ax2 = fig.add_subplot(2,1,2,sharex=ax1)
+        ax2.plot(T,battery_storage)
+        ax2.plot(T,battery_charge)
+        ax2.plot(T,battery_discharge)
+        ax2.legend(['Storage', 'Charge', 'Discharge'])
+
+        plt.savefig(os.path.join(self.results_directory,'Time Series Plots.png'))
+
+        plt.show()
 
 
     @abstractmethod
@@ -311,15 +394,17 @@ class base_model(ABC):
         # Something saveable in a human readable format (for each important variable)
         pass
 
-
 class vanilla_model(base_model):
     def __init__(self, opt_params):
         self.model_type = 'Base MIP'
         super().__init__(opt_params)
 
 class column_gen(base_model):
-    def __init__(self,opt_params):
-        self.model_type = 'Column Generation'
+    def __init__(self,opt_params,model_type=None):
+        if model_type is not None:
+            self.model_type = model_type
+        else:
+            self.model_type = 'Column Generation'
         super().__init__(opt_params)
 
     def generate_columns(self):
@@ -406,6 +491,7 @@ class column_gen(base_model):
         class_value = self.column_info['class_value']
         A = self.instance_data['A']
         A_o = self.instance_data['A_o']
+        B = self.instance_data['B']
         T = self.time_sets['T']
         price = self.forecasts
 
@@ -420,8 +506,19 @@ class column_gen(base_model):
         self.class_demand = {t: self.model.addVar(vtype=GRB.CONTINUOUS, name=f'class[{t}]')
                              for t in T}
 
-    def add_objective(self):
+        self.Z_d = {(b,t): self.model.addVar(vtype=GRB.BINARY, name=f'Z_d[{b},{t}]')
+                    for b in B
+                    for t in T}
 
+        self.Z_c = {(b, t): self.model.addVar(vtype=GRB.BINARY, name=f'Z_c[{b},{t}]')
+                    for b in B
+                    for t in T}
+
+        self.C = {(b, t): self.model.addVar(vtype=GRB.CONTINUOUS, name=f'C[{b},{t}]')
+                    for b in B
+                    for t in T}
+
+    def add_objective(self):
         K = self.column_info['K']
         class_value = self.column_info['class_value']
         A = self.instance_data['A']
@@ -449,6 +546,10 @@ class column_gen(base_model):
         n_large = self.instance_data['n_large']
         p = self.instance_data['p']
         prec = self.instance_data['prec']
+        cap = self.instance_data['cap']
+        m = self.instance_data['m']
+        eff = self.instance_data['eff']
+        B = self.instance_data['B']
 
         T = self.time_sets['T']
         T_2_To = self.time_sets['T_2_To']
@@ -487,17 +588,35 @@ class column_gen(base_model):
         # Precedence constraints
         recur_precedence = {(a, d): self.model.addConstr(len(prec[a]) * quicksum(self.X[a, k] for k in G[a][d]) <=
                                                          quicksum(self.X[aa, k] for aa in prec[a] for dd in range(d) for k in G[aa][dd]))
-                            for a in A_r
+                            for a in A_r if len(prec[a]) > 0
                             for d in self.D_r}
 
         oneoff_precedence = {(a, d): self.model.addConstr(len(prec[a]) * quicksum(self.X[a, k] for k in G[a][d]) <=
-                                                 quicksum(
-                                                     self.X[aa, k] for aa in prec[a] for dd in range(d) for k in G[aa][dd]))
-                             for a in A_o
+                                                 quicksum(self.X[aa, k] for aa in prec[a] for dd in range(d) for k in G[aa][dd]))
+                             for a in A_o if len(prec[a]) > 0
                              for d in self.D_o}
 
+        battery = [quicksum(m[b]*(math.sqrt(eff[b])*self.Z_d[b,t] - self.Z_c[b,t]/math.sqrt(eff[b])) for b in B) for t in T]
+
         # Link grid power to other power supplies/demands
-        equate_power = {t: self.model.addConstr(self.grid_power[t] + solar_supply[t] == base_load[t] + self.class_demand[t])
+        equate_power = {t: self.model.addConstr(self.grid_power[t] + solar_supply[t] + battery[t]
+                                                == base_load[t] + self.class_demand[t])
+                        for t in T}
+
+        # Battery Constraints
+        starting_capacity = {b: self.model.addConstr(self.C[b,0] == cap[b] - m[b]*self.Z_d[b,0])
+                             for b in B}
+
+        battery_capacity = {(b,t): self.model.addConstr(self.C[b,t] == self.C[b,t-1] + 0.25*m[b]*(self.Z_c[b,t] - self.Z_d[b,t]))
+                            for b in B
+                            for t in T if t > 0}
+
+        cannot_charge_and_discharge = {(b,t): self.model.addConstr(self.Z_c[b,t] + self.Z_d[b,t] <= 1)
+                                       for b in B
+                                       for t in T}
+
+        max_capacity = {(b,t): self.model.addConstr(self.C[b,t] <= cap[b])
+                        for b in B
                         for t in T}
 
     def vars_to_readable(self):
@@ -507,6 +626,11 @@ class column_gen(base_model):
         A = self.instance_data['A']
         A_r = self.instance_data['A_r']
         dur = self.instance_data['dur']
+        B = self.instance_data['B']
+        m = self.instance_data['m']
+        eff = self.instance_data['eff']
+
+
         T = self.time_sets['T']
         T_2_To = self.time_sets['T_2_To']
 
@@ -522,10 +646,26 @@ class column_gen(base_model):
                     activity_start_times[a] = (d,t)
                     break
 
-
+        battery_storage = [[[] for _ in self.D_o] for b in B]
+        battery_discharge = [[[] for _ in self.D_o] for b in B]
+        battery_charge = [[[] for _ in self.D_o] for b in B]
         grid_power = [[] for _ in self.D_o]
-        for t in T:
-            d, tt = T_2_To(t)
-            grid_power[d].append(self.grid_power[t].X)
+        class_demand = [[] for _ in self.D_o]
 
-        return activity_start_times, grid_power
+        for t in T:
+            d, _ = T_2_To(t)
+            grid_power[d].append(self.grid_power[t].X)
+            class_demand[d].append(self.class_demand[t].X)
+            for b in B:
+                battery_storage[b][d].append(self.C[b,t].X)
+                battery_charge[b][d].append(m[b]*self.Z_c[b,t].X)
+                battery_discharge[b][d].append(m[b] * self.Z_d[b, t].X)
+
+        return activity_start_times, grid_power, class_demand, battery_storage, battery_charge, battery_discharge
+
+class column_gen_lazy(column_gen):
+    def __init__(self,opt_params):
+        super().__init__(opt_params,'Column Generation Lazy')
+
+    def add_constraints(self):
+        pass

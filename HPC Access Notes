@@ -19,10 +19,18 @@ uptime - Information about number of users on login node
 rquota - List usage of home and scratch folders (GB used and # files)
 groups - Display groups I belong to
 sshare -a | grep s4736535 - Check my fair share score
+squeue -u s4736535 - Check my current jobs
+
 --------------------- INTERACTIVE JOB ---------------------
 Can change mem, time, job-name, partition (debug or general), srun as needed
 
 salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=1 --mem=5G --job-name=MK_TEST --time=01:00:00 --partition=debug --account=a_forecasting srun --export=PATH,TERM,HOME,LANG --pty /bin/bash -l
+
+exit interactive bash shell by using quit command
+
+--------------------- CHECKING JOBS ---------------------
+
+
 --------------------- JOB SUBMISSION ---------------------
 AccountString is a_forecasting
 

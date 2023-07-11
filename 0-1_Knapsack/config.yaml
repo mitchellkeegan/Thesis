@@ -1,0 +1,6 @@
+instance index: 0
+threads: 1
+MIPGap: 0
+TimeLimit: 600
+problem: 0-1 Knapsack
+instance folder: Weights_and_Values_and_Capacity
