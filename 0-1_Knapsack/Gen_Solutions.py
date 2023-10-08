@@ -9,7 +9,7 @@ cwd = os.getcwd()
 if os.path.split(cwd)[1] != 'Thesis':
     sys.path.append(os.path.dirname(cwd))
 
-print(sys.path)
+# print(sys.path)
 
 from Opt_Model_Defs import vanilla_IP
 import yaml
@@ -25,10 +25,10 @@ with open('config.yaml',"r") as f:
 #               'problem': '0-1 Knapsack',
 #               'instance folder': 'Weights_and_Values_and_Capacity'}
 
-print(opt_params)
+# print(opt_params)
 
-# model = vanilla_IP(opt_params)
-# model.solve_all_instances()
+model = vanilla_IP(opt_params)
+model.solve_all_instances()
 # for instance in range(model.available_instances):
 #     model.setup_and_optimize(instance)
 #     model.save_model()

@@ -104,7 +104,6 @@ class constraint_metrics():
         # mean_violation = violated_percent.mean()
         mean_violation = violated_percent[abs(violated_percent - np.mean(violated_percent)) < 6 * np.std(violated_percent)].mean()
 
-
         p1 = f'{violated.sum()}/{n_instances} Inequality Constraints Violated ({100*(violated.sum()/n_instances):.2f}%)'
         p2 = f'Constraint Violation Statistics:  MEAN - {mean_violation:.2f} | MIN - {min_violation:.2f} | MAX - {max_violation:.2f}'
 

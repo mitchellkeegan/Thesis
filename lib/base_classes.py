@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import os
+import time
 
 from lib.custom_metrics import Approximation_Ratio
 
@@ -53,6 +54,7 @@ class base_opt_model(ABC):
     def __init__(self, opt_params):
         self.opt_params = opt_params
         self.base_dir = os.path.join('/home/mitch/Documents/Thesis Data/', self.opt_params['problem'])
+        self.opt_dir = os.path.join(self.base_dir,'Opt Results',self.model_type,self.opt_params["instance folder"])
         self.instance_dir = os.path.join(self.base_dir,'Instances',opt_params['instance folder'])
 
     # Overwrite as needed (E.g. for small vs large instances)
@@ -70,10 +72,14 @@ class base_opt_model(ABC):
 
     def create_model(self):
         self.model = Model()
+        if 'LogToConsole' in self.opt_params:
+            self.model.Params.LogToConsole = self.opt_params['LogToConsole']
         if 'MIPGap' in self.opt_params:
             self.model.Params.MIPGap = self.opt_params['MIPGap']
         if 'TimeLimit' in self.opt_params:
             self.model.Params.TimeLimit = self.opt_params['TimeLimit']
+        if 'threads' in self.opt_params:
+            self.model.Params.Threads = self.opt_params['threads']
 
     # Overwrite as needed (E.g. for small vs large instances)
     def solve_all_instances(self):
@@ -83,9 +89,20 @@ class base_opt_model(ABC):
             with open(instance_gen_info_file, 'r') as f:
                 self.available_instances = int(f.readline()[:-1])
 
+            start_time = time.time()
+            self.total_solve_time = 0
+
             for instance in range(self.available_instances):
                 self.setup_and_optimize(instance)
                 self.save_model()
+                self.total_solve_time += self.model.Runtime
+
+            # end_time = time.time()
+            # solve_time_per_instance = (end_time - start_time)/self.available_instances
+            with open(os.path.join(self.opt_dir, 'Solve Time.txt'),'w') as f:
+                f.write(f'{self.total_solve_time/self.available_instances:.5f} s')
+            print(f'Total Solve Time: {self.total_solve_time:.2f}')
+
         else:
             print('No "Instance Generation Info.txt" file found.')
 
@@ -126,12 +143,10 @@ class base_opt_model(ABC):
         if Age.shape[0] > 0:
             scipy.sparse.save_npz(os.path.join(self.results_directory,'Age.npz'),Age)
 
-
-
     def save_model(self):
         self.create_results_directory()
         self.save_model_output()
-        self.save_model_matrix()
+        # self.save_model_matrix()
 
         # Store the optimisation parameters used
         with open(os.path.join(self.results_directory, 'opt_params.pickle'), 'wb') as f:
@@ -153,7 +168,7 @@ class base_opt_model(ABC):
             f.write(f'MIPGap - {100 * self.model.MIPGap:.3f}%\n')
 
         # Store the solution such that it can be loaded back into a Gurobi model
-        self.model.write(os.path.join(self.results_directory, 'solution.sol'))
+        # self.model.write(os.path.join(self.results_directory, 'solution.sol'))
 
     @abstractmethod
     def save_model_output(self):
@@ -244,7 +259,10 @@ class ml_model(ABC):
 
         print('-'*10 + f'\n\nEVALUATING PREDICTION ON {self.pred_on} DATA\n\n')
 
-        coeff = self.create_coefficient_dict(self.unnormalise_inputs(X))
+        if self.model_type == 'Neural Network':
+            coeff = self.create_coefficient_dict(self.unnormalise_inputs(X))
+        else:
+            coeff = self.create_coefficient_dict(X)
 
         print('-' * 10)
         # problem_metrics = self.print_problem_metrics(X,Y,coeff)
@@ -285,7 +303,6 @@ class ml_model(ABC):
     def create_coefficient_dict(self,X):
         # Create a coefficient dictionary for the inputs X
         # X is a B x N matrix where each row represents the data for one instance
-
         pass
 
     # Needs to be overwritten for augmented lagrangian models
@@ -324,18 +341,19 @@ class ml_model(ABC):
         return X_out
 
 class random_forest(ml_model):
-    def __init__(self, ml_params, directories, ml_model_type=None):
+    def __init__(self, model_params, training_params, directories, ml_model_type=None):
         if ml_model_type is None:
             self.model_type = 'Random Forest'
         else:
             self.model_type = ml_model_type
 
-        super().__init__(ml_params,directories)
+        super().__init__(model_params,training_params,directories)
 
     def fit(self):
-        max_features = self.ml_params.get('Max Features', 'sqrt')
-        num_trees = self.ml_params.get('Number Trees', 100)
-        max_depth = self.ml_params.get('Max Depth', None)
+        max_features = self.model_params.get('Max Features', 'sqrt')
+        num_trees = self.model_params.get('Number Trees', 100)
+        max_depth = self.model_params.get('Max Depth', None)
+        grid_search = self.training_params.get('Grid Search', False)
 
         self.model = MultiOutputClassifier(RandomForestClassifier(n_estimators=num_trees,
                                                                   max_depth=max_depth,
@@ -344,11 +362,50 @@ class random_forest(ml_model):
         X_train = self.input_dict['TRAIN']
         Y_train = self.output_dict['TRAIN']
 
+        if 'VAL' in self.input_dict:
+            X_val = self.input_dict['VAL']
+            Y_val = self.output_dict['VAL']
+
+        if grid_search:
+            print(f'\nFITTING MODEL WITH {self.hyperparameters}\n')
+
+        # Start a timer for the model fitting
+        start = time.time()
+
         self.model.fit(X_train,
                        Y_train)
 
-    def predict(self, input='Test',idx_subset=None):
-        # TODO Update this so that it can itulise idx_subset
+        # Record how long it took to train the random forest
+        end_time = time.time()
+        training_time = int((end_time - start) / 60)
+        with open(os.path.join(self.ml_result_dir, 'Training Time.txt'), 'a') as f:
+            f.write(f'{training_time} mins')
+
+        self.save_model()
+
+        # Evaluate the fitted random forest on the validation set (if one exists)
+        if 'VAL' in self.input_dict:
+            # log_output = 'VAL METRICS  '
+            pred = self.model.predict(X_val)
+
+            coeff = self.create_coefficient_dict(X_val)
+            AR = Approximation_Ratio(coeff, pred, Y_val, reduce='mean')
+
+            # log_output += f'AR = {AR:.4f} |'
+            print(f'VAL METRICS  AR = {AR:.4f} |')
+
+            if grid_search:
+                combined_params_dict = self.training_params | self.model_params
+                training_params = ''
+                for param, value in combined_params_dict.items():
+                    if param != 'Grid Search':
+                        training_params += f'{param}={value} '
+                with open(os.path.join(self.ml_results_base_dir, 'Grid Search Results AR.txt'), 'a') as f:
+                    f.write(training_params + f'{AR:.8f}\n')
+
+
+    def predict(self,input='Val', idx_subset=None):
+        # TODO Update this so that it can utilise idx_subset
         input = input.upper()
 
         if input in ['TEST', 'TRAIN', 'VAL']:
@@ -364,7 +421,7 @@ class random_forest(ml_model):
 
         with open(os.path.join(self.ml_result_dir,'Info.txt'),'w') as f:
             f.write('ML PARAMS:\n')
-            for k,v in self.ml_params.items():
+            for k,v in self.model_params.items():
                 f.write(k + ': ' + str(v) + '\n')
 
     def load_model(self):
@@ -401,9 +458,9 @@ class neural_network(ml_model):
 
     def load_model(self,filename='model_params.pt'):
         self.model = self.forward_model(self.n_features,self.n_out,self.model_params)
-        self.model.load_state_dict(torch.load(os.path.join(self.ml_result_dir,filename)))
+        self.model.load_state_dict(torch.load(os.path.join(self.ml_results_base_dir,filename)))
 
-    def fit(self,preload=False):
+    def fit(self,preload=None):
 
         # Load in training parameters
         n_epochs = self.training_params.get('Epochs',100)
@@ -417,8 +474,10 @@ class neural_network(ml_model):
         clip_grad_norm = self.training_params.get('Clip Grad Norm',False)
         max_grad_norm = self.training_params.get('Max Grad Norm', 1)
         grid_search = self.training_params.get('Grid Search', False)
-
-
+        lm_update_interleave = self.training_params.get('LM Update Interleave', 0)
+        ctype = self.training_params.get('ctype', 'violation')
+        lm_delay = self.training_params.get('LM Delay',0)
+        lambda_norms = self.training_params.get('Lambda Norms',[0,1])
 
         assert (self.input_dict is not None and self.output_dict is not None), 'Please load in training data before training Neural Network Model\n'
 
@@ -442,10 +501,11 @@ class neural_network(ml_model):
         n_out = Y_train.shape[1]
 
         # Set up the model and optimizer
-        if preload:
-            self.load_model()
+        if preload is not None:
+            self.load_model(preload)
         else:
             self.model = self.forward_model(n_features,n_out,self.model_params)
+
         optimizer = torch.optim.Adam(self.model.parameters(),lr,weight_decay=0)
 
         # Set up loss Binary Cross-Entropy Loss
@@ -456,23 +516,35 @@ class neural_network(ml_model):
         open(training_log_file,'w').close()
 
         best_validation_loss = float('inf')
-        best_cnormed_validation_loss = float('inf')
         best_validation_AR = float('inf')
+        best_cnormed_validation_loss = {lam: float('inf') for lam in lambda_norms}
+
+        val_loss_min_epoch = float('inf')
+        val_AR_min_epoch = float('inf')
+        val_cnormed_loss_epoch = {lam: float('inf') for lam in lambda_norms}
+
         train_loss_history = []
         val_loss_history = []
+        val_closs_history = {lam: [] for lam in lambda_norms}
+
+
+
         epochs_since_improvement = 0
         epochs_since_lr_decreased = 0
+        lm_update_interleave_counter = 0
 
         if grid_search:
             print(f'\nFITTING MODEL WITH {self.hyperparameters}\n')
 
         append_learning_rate_to_log = False
 
+        start = time.time()
+
         for epoch in range(n_epochs):
             epoch_total_loss = 0
             epoch_constraint_loss = 0
-
             epoch_label_loss = 0
+
             self.model.train()
             for x_batch, y_batch in Train_Dataloader:
                 optimizer.zero_grad()
@@ -481,7 +553,7 @@ class neural_network(ml_model):
                 # label_hook = label_loss_individual.register_hook(lambda grad: print('label loss grad: ',grad.norm(dim=1).tolist(),'\n',))
                 label_loss = label_loss_individual.mean()
                 # TODO: Wrap this + BCE loss into one loss function?
-                if aug_lagrangian in ['ones','LDF']:
+                if epoch >= lm_delay and aug_lagrangian in ['ones','LDF']:
                     estimated_solution = MyRound.apply(torch.sigmoid(output),k)
                     # hook_handle_1 = estimated_solution.register_hook(lambda grad: print('rounded_sol grad norm: ', grad.norm(dim=1).tolist(),
                     #                                                                     '\nrounded_sol grad', grad))
@@ -503,6 +575,7 @@ class neural_network(ml_model):
                 epoch_total_loss += loss.item()
                 epoch_label_loss += label_loss.item()
 
+
                 loss.backward()
                 if clip_grad_norm:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(),max_grad_norm)
@@ -510,6 +583,10 @@ class neural_network(ml_model):
 
                 # hook_handle_1.remove()
                 # hook_handle_2.remove()
+
+            epoch_total_loss = epoch_total_loss / len(Train_Dataloader)
+            epoch_label_loss = epoch_label_loss / len(Train_Dataloader)
+            epoch_constraint_loss = epoch_constraint_loss / len(Train_Dataloader)
 
             log_output = f'Epoch {epoch}: TRAINING LOSS  Total = {epoch_total_loss:.3f}, Base = {epoch_label_loss:.3f}, Constraint = {epoch_constraint_loss:.3f}'
             train_loss_history.append(epoch_total_loss)
@@ -520,9 +597,12 @@ class neural_network(ml_model):
                 val_constraint_loss = 0
                 val_normed_constraint_loss = 0
                 val_label_loss = 0
-                self.model.eval()
+
                 AR = 0
 
+                normed_constraint_loss = {lam: 0 for lam in lambda_norms}
+
+                self.model.eval()
                 with torch.no_grad():
                     for x_batch, y_batch in Val_Dataloader:
                         output = self.model(x_batch)
@@ -533,58 +613,71 @@ class neural_network(ml_model):
                         AR += Approximation_Ratio(coeff,estimated_solution,y_batch,reduce='sum')
 
                         if aug_lagrangian in ['ones', 'LDF']:
-                            g = self.inequality_constraints(estimated_solution, x_batch)
-                            h = self.equality_constraints(estimated_solution, x_batch)
+                            g = self.inequality_constraints(estimated_solution, x_batch, ctype)
+                            h = self.equality_constraints(estimated_solution, x_batch, ctype)
                             c = torch.cat((g, h), dim=1)
 
                             if c.shape[1] < 1:
                                 print('To relax constraint into objective please provide constraint definitions to .fit()\n')
                             else:
+                                for lam in lambda_norms:
+                                    normed_constraint_loss[lam] += label_loss.item() + torch.sum(lam * c.t()).item()
+
                                 constraint_loss = torch.sum(lm @ c.t())
-                                normed_constraint_loss = torch.sum(c.t())
-                                loss_cnormed = label_loss + normed_constraint_loss
                                 loss = label_loss + constraint_loss
+
                             val_constraint_loss += constraint_loss.item()
+
                         else:
                             loss = label_loss
 
                         val_total_loss += loss.item()
-                        val_total_loss_cnormed += loss_cnormed.item()
                         val_label_loss += label_loss.item()
 
                 # Have only taken the sum of each metric over the batches. Divide through by the size of the validation set to get means
                 AR = AR / (Y_val.shape[0])
                 val_total_loss = val_total_loss / (Y_val.shape[0])
-                val_total_loss_cnormed = val_total_loss_cnormed / (Y_val.shape[0])
                 val_constraint_loss = val_constraint_loss / (Y_val.shape[0])
                 val_label_loss = val_label_loss / (Y_val.shape[0])
 
-                log_output += f' | VAL LOSS  Total = {val_total_loss:.3f}, ' \
-                              f'Base = {val_label_loss:.3f}, ' \
-                              f'Constraint = {val_constraint_loss:.3f}, ' \
-                              f'Total Normed = {val_total_loss_cnormed:.3f}'
-                log_output += f' | VAL METRICS  AR = {AR:.4f}'
                 val_loss_history.append(val_total_loss)
 
-                if AR >= best_validation_AR and val_total_loss_cnormed >= best_validation_loss and val_total_loss_cnormed >= best_cnormed_validation_loss:
-                    epochs_since_improvement += 1
-                    if epochs_since_improvement > 200:
-                        break
+                for lam in normed_constraint_loss:
+                    normed_constraint_loss[lam] = normed_constraint_loss[lam] / (Y_val.shape[0])
+                    val_closs_history[lam].append(normed_constraint_loss[lam])
+
+                log_output += f' | VAL LOSS  Total = {val_total_loss:.3f}, ' \
+                              f'Base = {val_label_loss:.3f}, ' \
+                              f'Constraint = {val_constraint_loss:.3f}'
+                log_output += f' | VAL METRICS  AR = {AR:.4f}'
+
+                performance_improved = False
+
                 if AR < best_validation_AR:
                     self.save_model(filename='model_params_best_AR.pt')
                     best_validation_AR = AR
                     log_output += ' *BEST AR*'
                     epochs_since_improvement = 0
+                    val_loss_min_epoch = epoch
+
                 if val_total_loss < best_validation_loss:
                     self.save_model(filename='model_params_best_loss.pt')
                     best_validation_loss = val_total_loss
                     log_output += ' *BEST LOSS*'
                     epochs_since_improvement = 0
-                if val_total_loss_cnormed < best_cnormed_validation_loss:
-                    self.save_model(filename='model_params_best_cnormed_loss.pt')
-                    best_cnormed_validation_loss = val_total_loss_cnormed
-                    log_output += ' *BEST CNORMED LOSS*'
-                    epochs_since_improvement = 0
+                    val_AR_min_epoch = epoch
+
+                for lam in lambda_norms:
+                    if normed_constraint_loss[lam] < best_cnormed_validation_loss[lam]:
+                        self.save_model(filename=f'model_params_best_{lam}-normed_loss.pt')
+                        best_cnormed_validation_loss[lam] = normed_constraint_loss[lam]
+                        epochs_since_improvement = 0
+                        val_cnormed_loss_epoch[lam] = epoch
+
+                if epochs_since_improvement > 400:
+                    break
+                else:
+                    epochs_since_improvement += 1
 
             else:
                 # Save model every Epoch if there is no validation set available
@@ -592,11 +685,10 @@ class neural_network(ml_model):
 
             log_output += ' | '
 
-            if aug_lagrangian == 'LDF':
-                if lm_scheduler is not None:
-                    s = lm_scheduler(epoch,best_validation_AR,s)
+            if epoch >= lm_delay and aug_lagrangian == 'LDF' and lm_update_interleave_counter >= lm_update_interleave:
+                lm_update_interleave_counter = 0
 
-                # At the end of each epoch update the lagrange multipliers
+                # Update Lagrange multipliers if the update interleave has been reached
                 self.model.eval()
                 with torch.no_grad():
                     for x_batch, _ in Train_Dataloader:
@@ -607,21 +699,35 @@ class neural_network(ml_model):
 
                         # Sum across the batch dimension, results after all batches will be that
                         # the constraint will have an effect for each training sample
-                        lm = lm + s*torch.mean(c, dim=0)
+                        lm = lm + s*torch.sum(c, dim=0)
                 log_output += f'LM = {lm[0][0]:.2f} '
 
+            lm_update_interleave_counter += 1
 
             if append_learning_rate_to_log:
                 log_output += f'LR = {lr} '
                 append_learning_rate_to_log = False
             if grid_search:
-
                 with open(training_log_file, 'a') as f:
                     f.write(log_output + '\n')
                 if epoch % 50 == 0:
                     print(log_output)
             else:
+                with open(training_log_file, 'a') as f:
+                    f.write(log_output + '\n')
                 print(log_output)
+
+        end_time = time.time()
+        training_time = int((end_time - start)/60)
+        with open(os.path.join(self.ml_results_base_dir, 'Training Time.txt'), 'a') as f:
+            f.write(f'{training_time} mins')
+
+        with open(os.path.join(self.ml_results_base_dir, 'Model Epochs.txt'),'a') as f:
+            f.write(f'AR: {val_AR_min_epoch}\n')
+            f.write(f'Loss: {val_loss_min_epoch}\n')
+            for lam in lambda_norms:
+                f.write(f'{lam}-Normed Loss: {val_cnormed_loss_epoch[lam]}\n')
+
         if grid_search:
             combined_params_dict = self.training_params | self.model_params
             training_params = ''
@@ -632,10 +738,15 @@ class neural_network(ml_model):
                 f.write(training_params + f'{AR:.8f}\n')
             with open(os.path.join(self.ml_results_base_dir, 'Grid Search Results LOSS.txt'), 'a') as f:
                 f.write(training_params + f'{best_validation_loss:.8f}\n')
-            with open(os.path.join(self.ml_results_base_dir, 'Grid Search Results CNORMED LOSS.txt'), 'a') as f:
-                f.write(training_params + f'{best_cnormed_validation_loss:.8f}\n')
+            for lam in lambda_norms:
+                with open(os.path.join(self.ml_results_base_dir, f'Grid Search Results {lam}-NORMED LOSS.txt'), 'a') as f:
+                    f.write(training_params + f'{best_cnormed_validation_loss[lam]:.8f}\n')
+
+
 
         # self.model.load_state_dict(torch.load(os.path.join(self.ml_result_dir,'model_params.pt')))
+
+        self.save_model(filename='model_params_final.pt')
 
         # TODO: Add support for automatically plotting different metrics
         # Save training graph to file
@@ -651,7 +762,19 @@ class neural_network(ml_model):
             axs_val.set_ylabel('Validation')
             # axs_val.legend()
 
-        plt.savefig(os.path.join(self.ml_result_dir,'Training History.png'))
+        plt.savefig(os.path.join(self.ml_result_dir, 'Training History.png'))
+        plt.savefig(os.path.join(self.ml_result_dir, 'Training History.eps'))
+
+        # Save the constraint-normed losses
+        for lam in lambda_norms:
+            fig1, axs1 = plt.subplots()
+            lns1 = axs1.plot(range(len(val_closs_history[lam])), val_closs_history[lam])
+            axs1.set_ylabel(f'{lam}-Normed Loss')
+            axs1.set_xlabel('Epoch')
+
+            plt.savefig(os.path.join(self.ml_result_dir, f'Training History {lam}-normed.png'))
+            plt.savefig(os.path.join(self.ml_result_dir, f'Training History {lam}-normed.eps'))
+
         if not grid_search:
             plt.show()
 
@@ -664,6 +787,7 @@ class neural_network(ml_model):
             Y = self.output_dict[input]
 
         # Check if we only want to make predictions on some subset of the data
+        # If running grid search do not check results over quintile
         if (idx_subset is not None) and (not self.training_params.get('Grid Search',False)):
             split_type, split = idx_subset
             split_idx = self.input_dict[split_type][input][split]
@@ -676,11 +800,36 @@ class neural_network(ml_model):
 
         pred = torch.empty((0,Y.shape[1]), dtype=torch.bool)
 
+        single_sample = torch.from_numpy(X[110:111,:]).float()
+
         self.model.eval()
         with torch.no_grad():
+            start_time = time.time()
+            output = torch.round(torch.sigmoid(self.model(single_sample))).type(torch.bool)
+
+        end_time = time.time()
+        inference_time = (end_time - start_time)
+        print(f'{inference_time:.5f} seconds')
+
+        total_time = 0
+
+        self.model.eval()
+        start_time = time.time()
+        with torch.no_grad():
             for x_batch, _ in My_Dataloader:
+                start_time = time.time()
                 output = torch.round(torch.sigmoid(self.model(x_batch))).type(torch.bool)
+                total_time += time.time() - start_time
                 pred = torch.cat((pred,output))
+
+        end_time = time.time()
+        inference_time = (end_time-start_time)
+        # inference_time_per_sample = inference_time/Y.shape[1]
+        inference_time_per_sample = total_time/Y.shape[1]
+        print(f'{inference_time_per_sample:.5f} seconds')
+
+        with open(os.path.join(self.ml_results_base_dir, 'Inference Time.txt'), 'a') as f:
+            f.write(f'{inference_time_per_sample:.5f} seconds')
 
         self.pred = (X,Y,pred.numpy())
         self.pred_on = input

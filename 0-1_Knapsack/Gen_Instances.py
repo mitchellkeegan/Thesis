@@ -4,14 +4,14 @@ import os
 import random
 import pickle
 
-n = 50
-n_instances = 1000
+n = 500
+n_instances = 10000
 
 v_min = 1
-v_max = 200
+v_max = 2000
 
 w_min = 1
-w_max = 200
+w_max = 2000
 
 w_mean = (w_min+w_max)/2
 
@@ -25,6 +25,8 @@ vary_weights = True
 vary_values = True
 vary_capacity = True
 full_capacity_spread = True
+
+strongly_correlated = True
 
 base_dir = '/home/mitch/Documents/Thesis Data/0-1 Knapsack/Instances'
 
@@ -48,6 +50,11 @@ if vary_values and vary_weights and vary_capacity:
     param_data = {'Varying': ['v','w','W'],
                    'Fixed': []}
 
+if strongly_correlated:
+    save_dir = os.path.join(base_dir, 'Strongly_Correlated_BIG')
+    param_data = {'Varying': ['v', 'w', 'W'],
+                  'Fixed': []}
+
 param_data['num'] = {'w':n, 'v': n, 'W': 1}
 
 if not os.path.exists(save_dir):
@@ -69,6 +76,8 @@ for i in range(n_instances):
         weights = [random.randint(w_min, w_max) for _ in range(n)]
         # if min(weights) > W:
         #     print('No Viable Solution')
+    if strongly_correlated:
+        values = [weights[i] + w_max//10 for i in range(n)]
     if vary_capacity:
         if full_capacity_spread:
             W = (i+1)/(n_instances+1) * sum(weights)
@@ -103,3 +112,5 @@ with open(os.path.join(save_dir,'Instance Generation Info.txt'),'w') as f:
         f.write('Capacity ')
     if full_capacity_spread:
         f.write('\nFull Capacity Spread')
+    if strongly_correlated:
+        f.write('\nStrongly Correlated')
