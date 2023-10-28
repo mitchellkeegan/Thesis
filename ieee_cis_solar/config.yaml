@@ -3,8 +3,9 @@ threads: 8
 MIPGap: 0.01
 TimeLimit: 60
 problem: ieee_cis_solar
-instance folder: small
+instance folder: smallArtificial
 LogToConsole: 0
 LogFile: True
 StoreSol: False
 method: -1
+

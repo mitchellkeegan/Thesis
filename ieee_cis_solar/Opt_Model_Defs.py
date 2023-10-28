@@ -213,15 +213,19 @@ class ieee_cis_solar_base(base_opt_model):
         base_load = base_load[13*4:24*4] + base_load
 
         # Load in pricing data
-        price_df = pd.read_csv(os.path.join(os.path.dirname(self.instance_dir),'PRICE_AND_DEMAND_202011_VIC1.csv'))
+        if self.opt_params['instance folder'] == 'smallArtificial':
+            price_df = pd.read_csv(self.instance_dir,'price_forecasts.csv')
+            price = price_df.to_numpy()[:,1:]
+        else:
+            price_df = pd.read_csv(os.path.join(os.path.dirname(self.instance_dir),'PRICE_AND_DEMAND_202011_VIC1.csv'))
 
-        price_30m = price_df['RRP'].to_list()
+            price_30m = price_df['RRP'].to_list()
 
-        price = []
+            price = []
 
-        for rrp in price_30m:
-            price.append(rrp)
-            price.append(rrp)
+            for rrp in price_30m:
+                price.append(rrp)
+                price.append(rrp)
 
         self.forecasts = {'base_load': base_load,
                           'solar_supply': solar_supply,
@@ -246,64 +250,71 @@ class ieee_cis_solar_base(base_opt_model):
         # else:
         #     self.opt_params['instance index'] = index
 
-        index = self.instance
 
-        with open(os.path.join(self.instance_dir, f'phase2_instance_{index}.txt')) as f:
-            for line in f:
-                line = line.split()
-                if line[0] == 'ppoi':
-                    num_r = int(line[4])
-                    num_o = int(line[5])
-                    A_r = range(num_r)
-                    A_o = range(num_r, num_r + num_o)
-                    A = range(num_r + num_o)
+        if self.opt_params['instance folder'] == 'smallArtificial':
+            f = open(os.path.join(self.instance_dir,'phase2_instance_small.txt'),'r')
+        else:
+            index = self.instance
+            f = open(os.path.join(self.instance_dir, f'phase2_instance_{index}.txt'))
 
 
-                elif line[0] == 'b':
-                    n_small += int(line[2])
-                    n_large += int(line[3])
-                elif line[0] == 's':
-                    continue
-                elif line[0] == 'c':
-                    cap.append(int(line[3]))
-                    m.append(int(line[4]))
-                    eff.append(float(line[5]))
-                elif line[0] == 'r':
-                    id = int(line[1])
-                    if line[3] == 'S':
-                        r_small[id] = int(line[2])
-                    elif line[3] == 'L':
-                        r_large[id] = int(line[2])
-                    else:
-                        print('???')
+        for line in f:
+            line = line.split()
+            if line[0] == 'ppoi':
+                num_r = int(line[4])
+                num_o = int(line[5])
+                A_r = range(num_r)
+                A_o = range(num_r, num_r + num_o)
+                A = range(num_r + num_o)
 
-                    p.append(int(line[4]))
-                    dur.append(int(line[5]))
 
-                    if int(line[6]) > 0:
-                        prec.append([int(x) for x in line[7:]])
-                    else:
-                        prec.append([])
+            elif line[0] == 'b':
+                n_small += int(line[2])
+                n_large += int(line[3])
+            elif line[0] == 's':
+                continue
+            elif line[0] == 'c':
+                cap.append(int(line[3]))
+                m.append(int(line[4]))
+                eff.append(float(line[5]))
+            elif line[0] == 'r':
+                id = int(line[1])
+                if line[3] == 'S':
+                    r_small[id] = int(line[2])
+                elif line[3] == 'L':
+                    r_large[id] = int(line[2])
+                else:
+                    print('???')
 
-                elif line[0] == 'a':
-                    id = int(line[1]) + num_r
-                    if line[3] == 'S':
-                        r_small[id] = int(line[2])
-                    elif line[3] == 'L':
-                        r_large[id] = int(line[2])
-                    else:
-                        print('???')
+                p.append(int(line[4]))
+                dur.append(int(line[5]))
 
-                    p.append(int(line[4]))
-                    dur.append(int(line[5]))
+                if int(line[6]) > 0:
+                    prec.append([int(x) for x in line[7:]])
+                else:
+                    prec.append([])
 
-                    value[id] = int(line[6])
-                    penalty[id] = int(line[7])
+            elif line[0] == 'a':
+                id = int(line[1]) + num_r
+                if line[3] == 'S':
+                    r_small[id] = int(line[2])
+                elif line[3] == 'L':
+                    r_large[id] = int(line[2])
+                else:
+                    print('???')
 
-                    if int(line[8]) > 0:
-                        prec.append([int(x) + num_r for x in line[9:]])
-                    else:
-                        prec.append([])
+                p.append(int(line[4]))
+                dur.append(int(line[5]))
+
+                value[id] = int(line[6])
+                penalty[id] = int(line[7])
+
+                if int(line[8]) > 0:
+                    prec.append([int(x) + num_r for x in line[9:]])
+                else:
+                    prec.append([])
+
+        f.close()
 
         self.instance_data = {'n_small': n_small,
                               'n_large': n_large,
@@ -456,7 +467,11 @@ class column_gen(ieee_cis_solar_base):
         A = self.instance_data['A']
         A_o = self.instance_data['A_o']
         T = self.time_sets['T']
-        price = self.forecasts['price']
+        if self.opt_params['instance folder'] == 'smallArtificial':
+            price = self.forecasts['price'][self.instance,:]
+        else:
+            price = self.forecasts['price']
+
 
         oneoff_activity_payments = quicksum(self.X[a, k] * class_value[a][k] for a in A_o for k in K[a])
         grid_power_cost = (0.25 / 1000) * quicksum(self.grid_power[t] * price[t] for t in T)

@@ -6,6 +6,7 @@ from matplotlib.ticker import FixedLocator
 from statsmodels.tsa.seasonal import STL
 import numpy as np
 
+instance_dir = 'Instances/smallArtificial'
 
 # Load in forecasted base demand and solar supply (should be sitting in the root instance folder)
 forecast_csv = os.path.join('Instances','Forecasts-sample.csv')
@@ -50,7 +51,7 @@ block_size = 30
 assert 2880 % block_size == 0
 
 num_blocks = 2880//30
-n_samples = 2
+n_samples = 10
 # bootstrapped_series = np.zeros((n_samples,2880))
 bootstrapped_series = (trend+seasonal) * np.ones((n_samples,2880))
 rng = np.random.default_rng()
@@ -59,7 +60,17 @@ for n in range(n_samples):
     block_starts = rng.integers(0,high=2880-block_size,size=num_blocks)
     for i,idx in enumerate(block_starts):
         bootstrapped_series[n,i*block_size:(i+1)*block_size] += resids[idx:idx+block_size]
-    if n < 10:
-        ax.plot(T, bootstrapped_series[n,:],'--')
 
-plt.show()
+    # if n < 10:
+    #     ax.plot(T, bootstrapped_series[n,:],'--')
+
+bootstrapped_series_pd = pd.DataFrame(bootstrapped_series)
+bootstrapped_series_pd.to_csv(path_or_buf=os.path.join(instance_dir,'price_forecasts.csv'))
+
+stored_forecasts = pd.read_csv(os.path.join(instance_dir,'price_forecasts.csv')).to_numpy()[:,1:]
+
+with open(os.path.join(instance_dir,'Instance Generation Info.txt'),'w') as f:
+    f.write(f'{n_samples}\n')
+
+
+# plt.show()

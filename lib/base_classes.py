@@ -55,7 +55,7 @@ class base_opt_model(ABC):
         self.opt_params = opt_params
         self.base_dir = opt_params['base directory']
 
-        self.opt_dir = os.path.join(self.base_dir,'Opt Results',self.model_type,self.opt_params["instance folder"])
+        self.opt_dir = os.path.join(self.base_dir,'Opt Results Old',self.model_type,self.opt_params["instance folder"])
         self.instance_dir = os.path.join(self.base_dir,'Instances',opt_params['instance folder'])
         self.gurobi_log_dir = os.path.join(os.path.dirname(self.opt_dir),'GurobiLogs')
 
@@ -69,7 +69,7 @@ class base_opt_model(ABC):
     # Overwrite as needed (E.g. for small vs large Instances)
     def create_results_directory(self):
         self.results_directory = os.path.join(self.base_dir,
-                                              'Opt Results',
+                                              'Opt Results Old',
                                               self.model_type,
                                               self.opt_params["instance folder"],
                                               str(self.instance))
@@ -233,7 +233,7 @@ class ml_model(ABC):
         self.training_params = training_params
         self.base_dir = os.path.join('/home/mitch/Documents/Thesis Data/', directories['problem'])
         self.instance_dir = os.path.join(self.base_dir,'Instances',directories['Instance Type'])
-        self.opt_result_dir = os.path.join(self.base_dir,'Opt Results', directories['Opt Model'], directories['Instance Type'])
+        self.opt_result_dir = os.path.join(self.base_dir,'Opt Results Old', directories['Opt Model'], directories['Instance Type'])
         self.ml_result_dir = os.path.join(self.base_dir,'ML Results', self.model_type, directories['Instance Type'])
         self.ml_results_base_dir = self.ml_result_dir
         if 'Hyperparameters' in directories:
