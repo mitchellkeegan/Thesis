@@ -1,4 +1,4 @@
-s4736535@bunya.rcc.uq.edu.au
+ssh s4736535@bunya.rcc.uq.edu.au
 
 Transfer files using Filezilla
 
@@ -26,20 +26,33 @@ Can change mem, time, job-name, partition (debug or general), srun as needed
 
 salloc --nodes=1 --ntasks-per-node=1 --cpus-per-task=1 --mem=5G --job-name=MK_TEST --time=01:00:00 --partition=debug --account=a_forecasting srun --export=PATH,TERM,HOME,LANG --pty /bin/bash -l
 
-exit interactive bash shell by using quit command
+exit interactive bash shell by typing 'exit'
 
 --------------------- CHECKING JOBS ---------------------
+ 
 
+--------------------- SFTP ---------------------
+To get in:
+sftp s4736535@bunya.rcc.uq.edu.au
+
+ls & cd as normal on remote
+lls & lcd to navigate local machine
+get to pull files, put to put files
+put -r dirname to operate on folders instead of files
 
 --------------------- JOB SUBMISSION ---------------------
 AccountString is a_forecasting
 
 two types of RDM, HPC RDM is a q with 4 numbers after it
 
-ask Mahdi about RDM stuff?
-
 Can transfer files to /home/user/s4737535 but better in general to use scratch/user/s4736535
 
 Use home directory for building python environments, build the environment using anaconda in an interactive job (maybe 2x CPU and a small bit of memory)
 
 Slurm puts you in the directory you were in when you submitted the job
+
+--------------------- ANACONDA ---------------------
+source $EBROOTANACONDA3/etc/profile.d/conda.sh
+
+conda activate /home/s4736535/thesis_env
+

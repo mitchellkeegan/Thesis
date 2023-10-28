@@ -10,7 +10,7 @@ from helper_functions import load_instance, load_forecast, save_solution
 # Remove edge case of one-off activities ending outside of business hours not incurring a penalty
 # Add quadratic term in objective
 
-# Threads only applies for large instances
+# Threads only applies for large Instances
 opt_params = {'name': 'Vanilla',
               'instance size': 'large',
               'instance index': 2,

@@ -1,6 +1,6 @@
-from Model_Defs import column_gen
+from Opt_Model_Defs import column_gen
 
-# Threads parameter only applied for large instances
+# Threads parameter only applied for large Instances
 opt_params = {'instance size': 'large',
               'instance index': 4,
               'threads': 1,

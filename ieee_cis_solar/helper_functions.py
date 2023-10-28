@@ -15,7 +15,7 @@ def load_instance(size,index):
     value = {}
     penalty = {}
 
-    with open(os.path.join('instances', f'phase2_instance_{size}_{index}.txt')) as f:
+    with open(os.path.join('Instances', f'phase2_instance_{size}_{index}.txt')) as f:
         for line in f:
             line = line.split()
             if line[0] == 'ppoi':

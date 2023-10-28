@@ -1,0 +1,65 @@
+import os
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FixedLocator
+from statsmodels.tsa.seasonal import STL
+import numpy as np
+
+
+# Load in forecasted base demand and solar supply (should be sitting in the root instance folder)
+forecast_csv = os.path.join('Instances','Forecasts-sample.csv')
+
+# Load in pricing data
+price_df = pd.read_csv(os.path.join('Instances','PRICE_AND_DEMAND_202011_VIC1.csv'))
+
+price_30m = price_df['RRP'].to_list()
+
+price = []
+
+for rrp in price_30m:
+    price.append(rrp)
+    price.append(rrp)
+
+price = np.asarray(price)
+
+T = range(2880)
+D_o = list(range(30))
+
+fig = plt.figure()
+ax = fig.add_subplot(1,1,1)
+ax.plot(T,price,'black')
+ax.set_xticks([4*24*d for d in D_o],[d for d in D_o])
+ax.xaxis.set_minor_locator(FixedLocator(range(0,len(T),4)))
+
+res = STL(price,period=2880//30).fit()
+trend,seasonal,resids = res.trend, res.seasonal, res.resid
+
+# ax_trend = fig.add_subplot(4,1,2,sharex=ax)
+# ax_trend.plot(T,res.trend)
+#
+# ax_seasonal = fig.add_subplot(4,1,3,sharex=ax)
+# ax_seasonal.plot(T,res.seasonal)
+#
+# ax_resid = fig.add_subplot(4,1,4,sharex=ax)
+# ax_resid.plot(T,res.resid)
+
+
+# Bootstrap a sample from the data
+block_size = 30
+assert 2880 % block_size == 0
+
+num_blocks = 2880//30
+n_samples = 2
+# bootstrapped_series = np.zeros((n_samples,2880))
+bootstrapped_series = (trend+seasonal) * np.ones((n_samples,2880))
+rng = np.random.default_rng()
+for n in range(n_samples):
+
+    block_starts = rng.integers(0,high=2880-block_size,size=num_blocks)
+    for i,idx in enumerate(block_starts):
+        bootstrapped_series[n,i*block_size:(i+1)*block_size] += resids[idx:idx+block_size]
+    if n < 10:
+        ax.plot(T, bootstrapped_series[n,:],'--')
+
+plt.show()
