@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 import os
 import time
+import yaml
 
 from lib.custom_metrics import Approximation_Ratio
 
-import lightgbm.sklearn
 from gurobipy import Model
 import pickle
 from collections import defaultdict
@@ -13,7 +13,7 @@ from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.multioutput import MultiOutputClassifier
 import numpy as np
-import scipy.sparse
+# import scipy.sparse
 import matplotlib.pyplot as plt
 
 import torch
@@ -53,17 +53,26 @@ class MyRound(torch.autograd.Function):
 class base_opt_model(ABC):
     def __init__(self, opt_params):
         self.opt_params = opt_params
-        self.base_dir = os.path.join('/home/mitch/Documents/Thesis Data/', self.opt_params['problem'])
+        self.base_dir = opt_params['base directory']
+
         self.opt_dir = os.path.join(self.base_dir,'Opt Results',self.model_type,self.opt_params["instance folder"])
         self.instance_dir = os.path.join(self.base_dir,'Instances',opt_params['instance folder'])
+        self.gurobi_log_dir = os.path.join(os.path.dirname(self.opt_dir),'GurobiLogs')
 
-    # Overwrite as needed (E.g. for small vs large instances)
+        if not os.path.exists(self.opt_dir):
+            os.makedirs(self.opt_dir)
+        if not os.path.exists(self.gurobi_log_dir):
+            os.makedirs(self.gurobi_log_dir)
+
+        self.common_data_loaded = False
+
+    # Overwrite as needed (E.g. for small vs large Instances)
     def create_results_directory(self):
         self.results_directory = os.path.join(self.base_dir,
                                               'Opt Results',
                                               self.model_type,
                                               self.opt_params["instance folder"],
-                                              str(self.opt_params["instance index"]))
+                                              str(self.instance))
         if not os.path.exists(self.results_directory):
             os.makedirs(self.results_directory)
 
@@ -72,6 +81,10 @@ class base_opt_model(ABC):
 
     def create_model(self):
         self.model = Model()
+        self.create_results_directory()
+        if 'LogFile' in self.opt_params:
+            if self.opt_params['LogFile']:
+                self.model.params.LogFile = os.path.join(self.gurobi_log_dir,f'Gurobi Log {self.instance}.txt')
         if 'LogToConsole' in self.opt_params:
             self.model.Params.LogToConsole = self.opt_params['LogToConsole']
         if 'MIPGap' in self.opt_params:
@@ -80,36 +93,52 @@ class base_opt_model(ABC):
             self.model.Params.TimeLimit = self.opt_params['TimeLimit']
         if 'threads' in self.opt_params:
             self.model.Params.Threads = self.opt_params['threads']
+        if 'method' in self.opt_params:
+            self.model.Params.method = self.opt_params['method']
 
-    # Overwrite as needed (E.g. for small vs large instances)
+
+    # Overwrite as needed (E.g. for small vs large Instances)
     def solve_all_instances(self):
         instance_gen_info_file = os.path.join(self.instance_dir, 'Instance Generation Info.txt')
 
-        if os.path.exists(instance_gen_info_file):
-            with open(instance_gen_info_file, 'r') as f:
-                self.available_instances = int(f.readline()[:-1])
+        assert os.path.exists(instance_gen_info_file)
 
-            start_time = time.time()
-            self.total_solve_time = 0
+        with open(instance_gen_info_file, 'r') as f:
+            self.available_instances = int(f.readline()[:-1])
 
-            for instance in range(self.available_instances):
-                self.setup_and_optimize(instance)
+        self.total_solve_time = 0
+
+        self.instance = self.opt_params['instance index']
+
+        # Before beginning to solve, wipe out old Gurobi logfiles
+        for file in os.listdir(self.gurobi_log_dir):
+            os.remove(os.path.join(self.gurobi_log_dir,file))
+
+        # Store the parameters used for the optimisation
+        with open(os.path.join(os.path.dirname(self.opt_dir),'opt_config.yaml'),'w') as f:
+            yaml.dump(self.opt_params, f)
+
+        wall_time = time.time()
+        while self.instance < self.available_instances:
+            self.setup_and_optimize()
+            if self.model.Status in [2,9] and 100*self.model.MIPGap < 2:
                 self.save_model()
-                self.total_solve_time += self.model.Runtime
+            self.total_solve_time += self.model.Runtime
+            self.instance += 1
 
-            # end_time = time.time()
-            # solve_time_per_instance = (end_time - start_time)/self.available_instances
-            with open(os.path.join(self.opt_dir, 'Solve Time.txt'),'w') as f:
-                f.write(f'{self.total_solve_time/self.available_instances:.5f} s')
-            print(f'Total Solve Time: {self.total_solve_time:.2f}')
-
-        else:
-            print('No "Instance Generation Info.txt" file found.')
+        # end_time = time.time()
+        # solve_time_per_instance = (end_time - start_time)/self.available_instances
+        with open(os.path.join(self.opt_dir, 'Solve Time.txt'),'w') as f:
+            f.write(f'{self.total_solve_time/self.available_instances:.5f} s')
+        print(f'Total Solve Time: {self.total_solve_time:.2f}')
+        print(f'Total Wall Time: {time.time() - wall_time:.2f}')
 
 
-    def setup_and_optimize(self,index=None):
+
+    def setup_and_optimize(self):
+        print(f'Beginning to Solve Instance {self.instance}\n')
         self.create_model()
-        self.load_instance(index)
+        self.load_instance()
         self.load_problem_specific_data()
         self.add_vars()
         self.add_objective()
@@ -120,37 +149,37 @@ class base_opt_model(ABC):
         # Not always required, can be used, for example, to construct sets which will be looped over in constraints
         pass
 
-    def save_model_matrix(self):
-        A = self.model.getA()
-
-        sense = np.array(self.model.getAttr("Sense", self.model.getConstrs()))
-        b = np.array(self.model.getAttr("RHS", self.model.getConstrs()))
-
-        Aeq = A[sense == '=', :]
-        Ale = A[sense == '<', :]
-        Age = A[sense == '>', :]
-
-        beq = b[sense == '=']
-        ble = b[sense == '<']
-        bge = b[sense == '>']
-
-        if Aeq.shape[0] > 0:
-            scipy.sparse.save_npz(os.path.join(self.results_directory,'Aeq.npz'),Aeq)
-
-        if Ale.shape[0] > 0:
-            scipy.sparse.save_npz(os.path.join(self.results_directory,'Ale.npz'),Ale)
-
-        if Age.shape[0] > 0:
-            scipy.sparse.save_npz(os.path.join(self.results_directory,'Age.npz'),Age)
+    # def save_model_matrix(self):
+    #     A = self.model.getA()
+    #
+    #     sense = np.array(self.model.getAttr("Sense", self.model.getConstrs()))
+    #     b = np.array(self.model.getAttr("RHS", self.model.getConstrs()))
+    #
+    #     Aeq = A[sense == '=', :]
+    #     Ale = A[sense == '<', :]
+    #     Age = A[sense == '>', :]
+    #
+    #     beq = b[sense == '=']
+    #     ble = b[sense == '<']
+    #     bge = b[sense == '>']
+    #
+    #     if Aeq.shape[0] > 0:
+    #         scipy.sparse.save_npz(os.path.join(self.results_directory,'Aeq.npz'),Aeq)
+    #
+    #     if Ale.shape[0] > 0:
+    #         scipy.sparse.save_npz(os.path.join(self.results_directory,'Ale.npz'),Ale)
+    #
+    #     if Age.shape[0] > 0:
+    #         scipy.sparse.save_npz(os.path.join(self.results_directory,'Age.npz'),Age)
 
     def save_model(self):
-        self.create_results_directory()
+        # self.create_results_directory()
         self.save_model_output()
         # self.save_model_matrix()
 
         # Store the optimisation parameters used
-        with open(os.path.join(self.results_directory, 'opt_params.pickle'), 'wb') as f:
-            pickle.dump(self.opt_params, f, protocol=pickle.HIGHEST_PROTOCOL)
+        # with open(os.path.join(self.results_directory, 'opt_params.pickle'), 'wb') as f:
+        #     pickle.dump(self.opt_params, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         status_dict = defaultdict(lambda x: '???')
         status_dict[2] = 'Optimal Solution Found'
@@ -167,23 +196,23 @@ class base_opt_model(ABC):
             f.write(f'NumConstrs - {self.model.NumConstrs}\n')
             f.write(f'MIPGap - {100 * self.model.MIPGap:.3f}%\n')
 
-        # Store the solution such that it can be loaded back into a Gurobi model
-        # self.model.write(os.path.join(self.results_directory, 'solution.sol'))
+        #Store the solution such that it can be loaded back into a Gurobi model
+        if self.opt_params['StoreSol']:
+            self.model.write(os.path.join(self.results_directory, 'solution.sol'))
 
     @abstractmethod
     def save_model_output(self):
         # Call vars_to_readable and then write model output to file(s)
         pass
 
-
-
     @abstractmethod
     def vars_to_readable(self):
         # Convert model output to a readable format for saving
         pass
 
+
     @abstractmethod
-    def load_instance(self,index=None):
+    def load_instance(self):
         pass
 
     @abstractmethod
@@ -218,7 +247,7 @@ class ml_model(ABC):
         with open(os.path.join(self.instance_dir,'Instance Generation Info.txt'),'r') as f:
             self.available_instances = int(f.readline()[:-1])
 
-        # Load in a dictionary which stores which parameters of the instances vary between instance and which are fixed
+        # Load in a dictionary which stores which parameters of the Instances vary between instance and which are fixed
         with open(os.path.join(self.instance_dir,'param_types.pickle'),'rb') as f:
             self.param_types = pickle.load(f)
 
