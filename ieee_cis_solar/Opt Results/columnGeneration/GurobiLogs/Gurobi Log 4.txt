@@ -1,0 +1,52 @@
+
+Gurobi 9.5.2 (linux64) logging started Sat 28 Oct 2023 12:07:25
+
+Set parameter LogFile to value "/home/mitch/Documents/Thesis Test Folder/ieee_cis_solar/Opt Results/columnGeneration/GurobiLogs/Gurobi Log 4.txt"
+Set parameter LogToConsole to value 0
+Set parameter MIPGap to value 0.01
+Set parameter TimeLimit to value 60
+Set parameter Threads to value 8
+Gurobi Optimizer version 9.5.2 build v9.5.2rc0 (linux64)
+Thread count: 6 physical cores, 12 logical processors, using up to 8 threads
+Optimize a model with 29490 rows, 84890 columns and 3824499 nonzeros
+Model fingerprint: 0x4b193be0
+Variable types: 11520 continuous, 73370 integer (73370 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 7e+02]
+  Objective range  [2e-05, 2e+02]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [1e+00, 7e+02]
+Presolve removed 25692 rows and 55970 columns
+Presolve time: 4.21s
+Presolved: 3798 rows, 28920 columns, 1231672 nonzeros
+Variable types: 0 continuous, 28920 integer (28920 binary)
+
+Root relaxation: objective 1.621228e+04, 1683 iterations, 0.13 seconds (0.33 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0 16212.2771    0   79          - 16212.2771      -     -    4s
+H    0     0                    16739.151065 16212.2771  3.15%     -    5s
+H    0     0                    16445.142030 16212.2771  1.42%     -    5s
+     0     0 16234.3611    0  112 16445.1420 16234.3611  1.28%     -    6s
+H    0     0                    16402.594042 16234.3611  1.03%     -    6s
+     0     0 16237.2482    0  118 16402.5940 16237.2482  1.01%     -    6s
+     0     0 16239.3058    0  116 16402.5940 16239.3058  1.00%     -    6s
+
+Cutting planes:
+  Gomory: 3
+  Cover: 3
+  MIR: 5
+  StrongCG: 1
+  GUB cover: 35
+  Zero half: 3
+  RLT: 1
+
+Explored 1 nodes (2003 simplex iterations) in 6.84 seconds (21.41 work units)
+Thread count was 8 (of 12 available processors)
+
+Solution count 3: 16402.6 16445.1 16739.2 
+
+Optimal solution found (tolerance 1.00e-02)
+Best objective 1.640259404236e+04, best bound 1.623930582178e+04, gap 0.9955%

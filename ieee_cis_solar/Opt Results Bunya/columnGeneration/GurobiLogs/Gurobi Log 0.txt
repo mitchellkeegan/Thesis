@@ -1,0 +1,65 @@
+
+Gurobi 10.0.1 (linux64) logging started Fri Oct 27 21:21:35 2023
+
+Set parameter LogFile to value "/scratch/user/s4736535/Thesis/ieee_cis_solar/Opt Results/columnGeneration/GurobiLogs/Gurobi Log 0.txt"
+Set parameter MIPGap to value 0.01
+Set parameter TimeLimit to value 600
+Set parameter Threads to value 12
+Gurobi Optimizer version 10.0.1 build v10.0.1rc0 (linux64)
+
+CPU model: AMD EPYC 9454 48-Core Processor, instruction set [SSE2|AVX|AVX2|AVX512]
+Thread count: 96 physical cores, 192 logical processors, using up to 12 threads
+
+Optimize a model with 29515 rows, 84890 columns and 4087054 nonzeros
+Model fingerprint: 0x49ae10bd
+Variable types: 11520 continuous, 73370 integer (73370 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 7e+02]
+  Objective range  [2e-05, 2e+02]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [1e+00, 7e+02]
+Presolve removed 12480 rows and 24738 columns (presolve time = 5s) ...
+Presolve removed 23995 rows and 42014 columns
+Presolve time: 6.33s
+Presolved: 5520 rows, 42876 columns, 2185893 nonzeros
+Variable types: 0 continuous, 42876 integer (42875 binary)
+Deterministic concurrent LP optimizer: primal simplex, dual simplex, and barrier
+Showing barrier log only...
+
+Root barrier log...
+
+Ordering time: 0.01s
+
+Barrier performed 0 iterations in 7.39 seconds (20.67 work units)
+Barrier solve interrupted - model solved by another algorithm
+
+Concurrent spin time: 0.02s
+
+Solved with dual simplex
+
+Root relaxation: objective 1.637368e+04, 541 iterations, 0.40 seconds (0.67 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0 16373.6831    0   78          - 16373.6831      -     -    7s
+H    0     0                    16604.411635 16373.6831  1.39%     -    8s
+H    0     0                    16569.878222 16373.6831  1.18%     -    8s
+     0     0 16385.0454    0  119 16569.8782 16385.0454  1.12%     -    9s
+H    0     0                    16530.941630 16385.0454  0.88%     -   10s
+
+Cutting planes:
+  Gomory: 5
+  Cover: 18
+  MIR: 9
+  GUB cover: 38
+  Zero half: 5
+  RLT: 2
+
+Explored 1 nodes (722 simplex iterations) in 10.55 seconds (27.40 work units)
+Thread count was 12 (of 192 available processors)
+
+Solution count 3: 16530.9 16569.9 16604.4 
+
+Optimal solution found (tolerance 1.00e-02)
+Best objective 1.653094162986e+04, best bound 1.638504539551e+04, gap 0.8826%

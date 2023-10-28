@@ -1,0 +1,11 @@
+LogFile: true
+LogToConsole: 0
+MIPGap: 0.01
+StoreSol: false
+TimeLimit: 60
+base directory: /home/mitch/Documents/Thesis Test Folder/ieee_cis_solar
+instance folder: small
+instance index: 0
+method: -1
+problem: ieee_cis_solar
+threads: 8
