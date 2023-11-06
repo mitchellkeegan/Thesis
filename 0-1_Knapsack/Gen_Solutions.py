@@ -17,6 +17,8 @@ import yaml
 with open('config.yaml',"r") as f:
     opt_params = yaml.safe_load(f)
 
+opt_params['base directory'] = 'home/mitch/Documents/Thesis Data/0-1 Knapsack'
+
 # Threads parameter only applied for large instances
 # opt_params = {'instance index': 0,
 #               'threads': 1,

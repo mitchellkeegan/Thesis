@@ -1,7 +1,0 @@
-28/03/2023 18:48:01
-Objective - $15922.66
-Solve Time - 600.18s
-Status - 9 (Time Limit Reached)
-NumVars - 84555
-NumConstrs - 29720
-MIPGap - 0.473%

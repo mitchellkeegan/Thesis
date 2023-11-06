@@ -1,7 +1,0 @@
-27/10/2023 21:24:52
-Objective - 16402.59
-Solve Time - 7.89s
-Status - 2 (Optimal Solution Found)
-NumVars - 84890
-NumConstrs - 29490
-MIPGap - 0.996%

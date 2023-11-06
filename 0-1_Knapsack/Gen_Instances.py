@@ -4,8 +4,8 @@ import os
 import random
 import pickle
 
-n = 500
-n_instances = 10000
+n = 50
+n_instances = 1000
 
 v_min = 1
 v_max = 2000
@@ -26,7 +26,7 @@ vary_values = True
 vary_capacity = True
 full_capacity_spread = True
 
-strongly_correlated = True
+strongly_correlated = False
 
 base_dir = '/home/mitch/Documents/Thesis Data/0-1 Knapsack/Instances'
 

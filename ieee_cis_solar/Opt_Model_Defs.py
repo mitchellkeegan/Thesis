@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from matplotlib.ticker import AutoMinorLocator, FixedLocator
 import matplotlib.pyplot as plt
+import yaml
 
 
 from lib.base_classes import base_opt_model
@@ -180,9 +181,10 @@ class ieee_cis_solar_base(base_opt_model):
                 for t in T:
                     for d in self.D_r:
                         if t in Weekday_business_hours[d]:
-                            dt.append((d, T % (4 * 24) - (9 * 4)))
+                            dt.append((d, t % (4 * 24) - (9 * 4)))
                         else:
                             dt.append(None)
+                return dt
             else:
                 return None
 
@@ -214,7 +216,7 @@ class ieee_cis_solar_base(base_opt_model):
 
         # Load in pricing data
         if self.opt_params['instance folder'] == 'smallArtificial':
-            price_df = pd.read_csv(self.instance_dir,'price_forecasts.csv')
+            price_df = pd.read_csv(os.path.join(self.instance_dir,'price_forecasts.csv'))
             price = price_df.to_numpy()[:,1:]
         else:
             price_df = pd.read_csv(os.path.join(os.path.dirname(self.instance_dir),'PRICE_AND_DEMAND_202011_VIC1.csv'))
@@ -232,6 +234,8 @@ class ieee_cis_solar_base(base_opt_model):
                           'price': price}
 
     def load_instance(self):
+        if self.loaded_common_instance:
+            return
         n_small = 0
         n_large = 0
         prec = []
@@ -251,8 +255,10 @@ class ieee_cis_solar_base(base_opt_model):
         #     self.opt_params['instance index'] = index
 
 
+
         if self.opt_params['instance folder'] == 'smallArtificial':
             f = open(os.path.join(self.instance_dir,'phase2_instance_small.txt'),'r')
+            self.loaded_common_instance = True
         else:
             index = self.instance
             f = open(os.path.join(self.instance_dir, f'phase2_instance_{index}.txt'))
@@ -350,7 +356,13 @@ class column_gen(ieee_cis_solar_base):
             self.model_type = 'columnGeneration'
         super().__init__(opt_params)
 
+        self.loaded_common_instance = False
+        self.loaded_common_columns = False
+
     def generate_columns(self):
+        if self.loaded_common_columns:
+            return
+        #TODO Refactor to ensure it is run once or per instance as needed (Currently it might always run once)
         A = self.instance_data['A']
         A_r = self.instance_data['A_r']
         A_o = self.instance_data['A_o']
@@ -424,6 +436,9 @@ class column_gen(ieee_cis_solar_base):
                             'aos': active_oneoff_schedules,
                             'G': G,
                             'K': K}
+
+        if self.opt_params['instance folder'] == 'smallArtificial':
+            self.loaded_common_columns = True
 
     def add_vars(self):
         # Check if columns have been generated yet and generate if not
@@ -567,6 +582,7 @@ class column_gen(ieee_cis_solar_base):
                         for t in T}
 
     def vars_to_readable(self):
+        # Converts decision variables into human readable formats
         K = self.column_info['K']
         theta = self.column_info['theta']
         A = self.instance_data['A']
@@ -608,8 +624,78 @@ class column_gen(ieee_cis_solar_base):
 
         return activity_start_times, grid_power, class_demand, battery_storage, battery_charge, battery_discharge
 
+    def vars_to_ml_output(self):
+        # Converts decision variables into a format which can be used in a loss function to train a model
+        K = self.column_info['K']
+        theta = self.column_info['theta']
+        A = self.instance_data['A']
+        B = self.instance_data['B']
+        A_r = self.instance_data['A_r']
+        A_o = self.instance_data['A_o']
+
+        T_r = range(8 * 4)
+        T_o = range(24 * 4)
+        T = self.time_sets['T']
+        T_2_To = self.time_sets['T_2_To']
+
+        output_dict = {}
+        recurring_start_times = []
+        oneoff_start_times = []
+        charge_discharge = []
+
+
+        for a in A_r:
+            for k in K[a]:
+                if self.X[a, k].X > 0.9:
+                    d, t = theta[a][k]
+                    recurring_start_times.append(d*len(T_r) + t)
+                    break
+
+        for a in A_o:
+            oneoff_start_times.append(-1)
+            for k in K[a]:
+                if self.X[a, k].X > 0.9:
+                    d, t = theta[a][k]
+                    oneoff_start_times[-1] = d*len(T_o) + t
+                    break
+
+        assert len(oneoff_start_times) == len(A_o)
+
+        battery_charge_or_discharge = [[] for _ in B]
+        for b in B:
+            for t in T:
+                charge = self.Z_c[b,t].X > 0.9
+                discharge = self.Z_d[b,t].X > 0.9
+                assert (not (charge and discharge)), f'Solution has battery {b} simultaneously charging and discharging!'
+
+                if charge:
+                    battery_charge_or_discharge[b].append(1)
+                elif discharge:
+                    battery_charge_or_discharge[b].append(2)
+                elif (not charge) and (not discharge):
+                    battery_charge_or_discharge[b].append(3)
+                else:
+                    print('??????????????????')
+
+        output_dict['recurring start times'] = recurring_start_times
+        output_dict['oneoff start times'] = oneoff_start_times
+        output_dict['Battery States'] = battery_charge_or_discharge
+
+        with open(os.path.join(self.results_directory,'vars_for_ml.pickle'),'wb') as f:
+            pickle.dump(output_dict, f)
+
+
     def save_model_output(self):
         # Call after optimisation, saves solution to file in multiple formats, along with opt info
+
+        # Save the output vars in a output dict that can be loaded in to train ml model
+        self.vars_to_ml_output()
+
+        # If in streamline mode we do not care about saving outputs in human readable format
+        if self.opt_params['streamline']:
+            return
+
+        activity_start_times, grid_power, class_demand, battery_storage, battery_charge, battery_discharge = self.vars_to_readable()
 
         dur = self.instance_data['dur']
         A_r = self.instance_data['A_r']
@@ -619,8 +705,6 @@ class column_gen(ieee_cis_solar_base):
 
         def Tro_2_Time(t):
             return f'{math.floor(t / 4)}:{t % 4 * 15}' + ('0' if t % 4 * 15 == 0 else '')
-
-        activity_start_times, grid_power, class_demand, battery_storage, battery_charge, battery_discharge = self.vars_to_readable()
 
         with open(os.path.join(self.results_directory,'Schedule.txt'),'w') as f:
             for a, (d,t) in activity_start_times.items():
@@ -658,7 +742,11 @@ class column_gen(ieee_cis_solar_base):
         T = self.time_sets['T']
         base_load = self.forecasts['base_load']
         solar_supply = self.forecasts['solar_supply']
-        price = self.forecasts['price']
+
+        if self.opt_params['instance folder'] == 'smallArtificial':
+            price = self.forecasts['price'][self.instance,:]
+        else:
+            price = self.forecasts['price']
 
         _, grid_power, class_demand, battery_storage, battery_charge, battery_discharge = self.vars_to_readable()
 
@@ -670,7 +758,7 @@ class column_gen(ieee_cis_solar_base):
         battery_discharge = [b0 + b1 for batt0_day, batt1_day in zip(battery_discharge[0], battery_discharge[1]) for b0, b1 in zip(batt0_day, batt1_day)]
 
 
-        fig = plt.figure()
+        fig = plt.figure(figsize=(12.8,9.6))
         ax1 = fig.add_subplot(2,1,1)
 
         ax1.plot(T, grid_power)

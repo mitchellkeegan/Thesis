@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(file_dir))
 from Opt_Model_Defs import column_gen
 import yaml
 
-with open(os.path.join(file_dir,'config.yaml'),"r") as f:
+with open(os.path.join(file_dir, 'opt_config.yaml'), "r") as f:
     opt_params = yaml.safe_load(f)
 
 if 'base directory' not in opt_params:

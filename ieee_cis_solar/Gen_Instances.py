@@ -29,9 +29,13 @@ D_o = list(range(30))
 
 fig = plt.figure()
 ax = fig.add_subplot(1,1,1)
-ax.plot(T,price,'black')
+ax.plot(T,price,'black',label='Base Time Series')
 ax.set_xticks([4*24*d for d in D_o],[d for d in D_o])
 ax.xaxis.set_minor_locator(FixedLocator(range(0,len(T),4)))
+ax.set_xlabel('Day')
+ax.set_ylabel('Grid price ($/MWh')
+ax.set_title('Artificial Grid Power Prices')
+ax.legend()
 
 res = STL(price,period=2880//30).fit()
 trend,seasonal,resids = res.trend, res.seasonal, res.resid
@@ -51,26 +55,26 @@ block_size = 30
 assert 2880 % block_size == 0
 
 num_blocks = 2880//30
-n_samples = 10
+n_samples = 100
 # bootstrapped_series = np.zeros((n_samples,2880))
 bootstrapped_series = (trend+seasonal) * np.ones((n_samples,2880))
 rng = np.random.default_rng()
 for n in range(n_samples):
 
-    block_starts = rng.integers(0,high=2880-block_size,size=num_blocks)
+    block_starts = rng.choice([block_size*i for i in range(num_blocks)],size=num_blocks)
     for i,idx in enumerate(block_starts):
         bootstrapped_series[n,i*block_size:(i+1)*block_size] += resids[idx:idx+block_size]
 
-    # if n < 10:
-    #     ax.plot(T, bootstrapped_series[n,:],'--')
+    if n < 3:
+        ax.plot(T, bootstrapped_series[n,:],'--')
 
-bootstrapped_series_pd = pd.DataFrame(bootstrapped_series)
-bootstrapped_series_pd.to_csv(path_or_buf=os.path.join(instance_dir,'price_forecasts.csv'))
+# bootstrapped_series_pd = pd.DataFrame(bootstrapped_series)
+# bootstrapped_series_pd.to_csv(path_or_buf=os.path.join(instance_dir,'Backup Forecasts.csv'))
+#
+# stored_forecasts = pd.read_csv(os.path.join(instance_dir,'Backup Forecasts.csv')).to_numpy()[:,1:]
 
-stored_forecasts = pd.read_csv(os.path.join(instance_dir,'price_forecasts.csv')).to_numpy()[:,1:]
+# with open(os.path.join(instance_dir,'Instance Generation Info.txt'),'w') as f:
+#     f.write(f'{n_samples}\n')
 
-with open(os.path.join(instance_dir,'Instance Generation Info.txt'),'w') as f:
-    f.write(f'{n_samples}\n')
-
-
-# plt.show()
+plt.savefig('Artificial Grid Price Data.eps')
+plt.show()

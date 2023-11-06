@@ -1,0 +1,11 @@
+Learning Rate: 0.001
+Epochs: 30
+Training Batch Size: 256
+Lagrange Step: 0.001
+Constraints: LDF
+CLip Grad Norm: True
+Max Grad Norm: 1
+LM Step Scheduler: None
+LM Update Interleave: 0
+Lambda Norms: [1,10]
+Initial Lam: 0
